@@ -34,6 +34,7 @@ FM_PR_META_URL=
 FM_PR_META_HOST=
 FM_PR_META_PATH=
 FM_PR_META_NUMBER=
+FM_PR_META_HEAD=
 FM_PR_REG_ID=
 FM_PR_REG_PROVIDER=
 FM_PR_REG_URL=
@@ -76,6 +77,7 @@ FM_PR_POLL_SNAPSHOT_REG_HASH=
 FM_PR_POLL_SNAPSHOT_REG_IDENTITY=
 FM_PR_POLL_REARM_DATA_IDENTITY=
 FM_PR_POLL_REARM_CHECK_IDENTITY=
+FM_PR_POLL_VALIDATION_ERROR=
 FM_PR_RETIRE_ID=
 FM_PR_RETIRE_PROVIDER=
 FM_PR_RETIRE_URL=
@@ -322,6 +324,7 @@ fm_pr_metadata_identity_parse() {
   FM_PR_META_HOST=
   FM_PR_META_PATH=
   FM_PR_META_NUMBER=
+  FM_PR_META_HEAD=
   [ -f "$file" ] && [ ! -L "$file" ] || return 1
   [ "$(fm_pr_file_link_count "$file")" = 1 ] || return 1
   while IFS= read -r line || [ -n "$line" ]; do
@@ -342,7 +345,11 @@ fm_pr_metadata_identity_parse() {
         pr_head_count=$((pr_head_count + 1))
         if [ "$pr_head_count" -eq 1 ]; then
           value=${line#pr_head=}
-          fm_pr_head_valid "$value" || invalid=1
+          if fm_pr_head_valid "$value"; then
+            FM_PR_META_HEAD=$value
+          else
+            invalid=1
+          fi
         fi
         ;;
       *)
@@ -614,6 +621,7 @@ fm_pr_poll_publish_prepared() {
 
 fm_pr_poll_artifacts_valid() {
   local state=$1 id=$2 template=$3 data_identity check_identity
+  FM_PR_POLL_VALIDATION_ERROR=unauthenticated
   fm_pr_poll_artifacts_content_valid "$state" "$id" "$template" || return 1
   data_identity=$(fm_pr_file_identity "$state/$id.pr-poll") || return 1
   check_identity=$(fm_pr_file_identity "$state/$id.check.sh") || return 1
@@ -622,7 +630,8 @@ fm_pr_poll_artifacts_valid() {
   # replacement or a torn re-arm pairing one generation's check with another's
   # registration is refused.
   [ "$FM_PR_REG_DATA_IDENTITY" = "$data_identity" ] || return 1
-  [ "$FM_PR_REG_CHECK_IDENTITY" = "$check_identity" ]
+  [ "$FM_PR_REG_CHECK_IDENTITY" = "$check_identity" ] || return 1
+  FM_PR_POLL_VALIDATION_ERROR=
 }
 
 # Everything fm_pr_poll_artifacts_valid proves except that the registration's
@@ -656,12 +665,18 @@ fm_pr_poll_artifacts_content_valid() {
   [ "$FM_PR_REG_NUMBER" = "$FM_PR_DATA_NUMBER" ] || return 1
   [ "$FM_PR_REG_DATA_HASH" = "$data_hash" ] || return 1
   [ "$FM_PR_REG_TEMPLATE_HASH" = "$template_hash" ] || return 1
-  fm_pr_metadata_identity_parse "$meta" || return 1
-  [ "$FM_PR_META_PROVIDER" = "$FM_PR_DATA_PROVIDER" ] || return 1
-  [ "$FM_PR_META_URL" = "$FM_PR_DATA_URL" ] || return 1
-  [ "$FM_PR_META_HOST" = "$FM_PR_DATA_HOST" ] || return 1
-  [ "$FM_PR_META_PATH" = "$FM_PR_DATA_PATH" ] || return 1
-  [ "$FM_PR_META_NUMBER" = "$FM_PR_DATA_NUMBER" ]
+  if ! fm_pr_metadata_identity_parse "$meta"; then
+    FM_PR_POLL_VALIDATION_ERROR=malformed-metadata
+    return 1
+  fi
+  if [ "$FM_PR_META_PROVIDER" != "$FM_PR_DATA_PROVIDER" ] \
+    || [ "$FM_PR_META_URL" != "$FM_PR_DATA_URL" ] \
+    || [ "$FM_PR_META_HOST" != "$FM_PR_DATA_HOST" ] \
+    || [ "$FM_PR_META_PATH" != "$FM_PR_DATA_PATH" ] \
+    || [ "$FM_PR_META_NUMBER" != "$FM_PR_DATA_NUMBER" ]; then
+    FM_PR_POLL_VALIDATION_ERROR=metadata-mismatch
+    return 1
+  fi
 }
 
 # A registration armed before a volume remount can name a device number the
