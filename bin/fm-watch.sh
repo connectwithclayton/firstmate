@@ -103,6 +103,7 @@
 #                          payload names what to check. These three kinds are
 #                          joined with `;` when more than one surfaces in a cycle
 #   check: rejected unauthenticated state checks: <paths>
+#   check: disabled malformed PR merge polls (re-arm required): <paths>
 #                          unsafe state checks were refused without execution
 #   check: rejected unauthenticated PR poll retirement receipts: <paths>
 #                          invalid pending retirements were preserved without
@@ -2232,6 +2233,7 @@ while :; do
   if [ "$(age_of "$STATE/.last-check")" -ge "$CHECK_INTERVAL" ]; then
     rejected_checks=
     contribution_check_output=
+    malformed_pr_checks=
     for c in "$STATE"/*.check.sh; do
       [ -e "$c" ] || continue
       is_pr_poll=0
@@ -2272,7 +2274,10 @@ while :; do
           fm_custom_check_snapshot_cleanup
         else
           fm_custom_check_snapshot_cleanup
-          rejected_checks="$rejected_checks $c"
+          case "${FM_PR_POLL_VALIDATION_ERROR:-}" in
+            malformed-metadata|metadata-mismatch) malformed_pr_checks="$malformed_pr_checks $c" ;;
+            *) rejected_checks="$rejected_checks $c" ;;
+          esac
           continue
         fi
       fi
@@ -2337,6 +2342,12 @@ EOF
     if [ -n "$rejected_checks" ]; then
       reason="check: rejected unauthenticated state checks:$rejected_checks"
       fm_wake_append check unauthenticated-state-checks "$reason" || exit 1
+      touch "$STATE/.last-check"
+      wake "$reason"
+    fi
+    if [ -n "$malformed_pr_checks" ]; then
+      reason="check: disabled malformed PR merge polls (re-arm required):$malformed_pr_checks"
+      fm_wake_append check malformed-pr-merge-polls "$reason" || exit 1
       touch "$STATE/.last-check"
       wake "$reason"
     fi

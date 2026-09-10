@@ -430,6 +430,35 @@ EOF
   pass "raw-byte parser accepts canonical URLs and rejects the complete adversarial matrix"
 }
 
+test_metadata_identity_is_order_independent_and_closed() {
+  local dir meta url head
+  dir=$(make_case metadata-key-set)
+  meta="$dir/home/state/task-a.meta"
+  url=https://github.com/o/r/pull/41
+  head=0123456789abcdef0123456789abcdef01234567
+  fm_write_meta "$meta" \
+    "pr_head=$head" \
+    'window=firstmate:fm-task-a' \
+    "pr=$url" \
+    'control_relaunch_tx=123.20260910T120000Z.456'
+  fm_pr_metadata_identity_parse "$meta" \
+    || fail "known task metadata keys were order-dependent"
+  [ "$FM_PR_META_URL" = "$url" ] && [ "$FM_PR_META_HEAD" = "$head" ] \
+    || fail "order-independent metadata parsing lost the PR identity"
+
+  fm_write_meta "$meta" \
+    'unexpected_before_pr=value' \
+    "pr=$url"
+  ! fm_pr_metadata_identity_parse "$meta" \
+    || fail "an unknown task metadata key before pr= was accepted"
+  fm_write_meta "$meta" \
+    "pr=$url" \
+    'unexpected_after_pr=value'
+  ! fm_pr_metadata_identity_parse "$meta" \
+    || fail "an unknown task metadata key after pr= was accepted"
+  pass "PR metadata identity is order-independent over a closed key set"
+}
+
 test_invalid_entrypoints_have_zero_side_effects() {
   local dir before after value rc
   dir=$(make_case invalid-entrypoints)
@@ -550,6 +579,13 @@ test_valid_recording_and_merge_derivation() {
   [ "$count" -eq 1 ] || fail "duplicate pr metadata was appended"
   count=$(grep -c '^pr_head=' "$dir/home/state/task-a.meta")
   [ "$count" -eq 1 ] || fail "duplicate pr_head metadata was appended"
+
+  FM_TEST_GH_HEAD=unavailable run_check_entry "$dir" task-a https://github.com/my-org/repo_name.with-dots/pull/37 \
+    >/dev/null 2>/dev/null || fail "valid duplicate check without a live head failed"
+  grep -qxF "pr_head=$expected" "$dir/home/state/task-a.meta" \
+    || fail "re-arming the same PR without a live head dropped its recorded pr_head"
+  count=$(grep -c '^pr_head=' "$dir/home/state/task-a.meta")
+  [ "$count" -eq 1 ] || fail "re-arming the same PR duplicated its preserved pr_head metadata"
 
   : > "$dir/gh.log"
   run_merge_entry "$dir" task-a https://github.com/my-org/repo_name.with-dots/pull/37 -- --merge \
@@ -1069,6 +1105,42 @@ test_bootstrap_leaves_unauthenticated_checks() {
   assert_no_grep 'PR_CHECK_MIGRATION' "$dir/bootstrap.err" \
     "bootstrap still emitted a retired migration diagnostic on stderr"
   pass "bootstrap does not rewrite unauthenticated checks or emit retired migration diagnostics"
+}
+
+test_watcher_distinguishes_malformed_pr_metadata_from_trust_failure() {
+  local dir state rc
+  dir=$(make_case malformed-pr-metadata-diagnostic)
+  state="$dir/home/state"
+  write_poll_meta "$state" task-a https://github.com/o/r/pull/51
+  seed_canonical_poll "$dir" task-a https://github.com/o/r/pull/51
+  printf 'unexpected=value\n' >> "$state/task-a.meta"
+  set +e
+  FM_TEST_GH_STATE=OPEN run_watcher_bounded "$dir/home" "$dir/fakebin" \
+    > "$dir/watch.out" 2> "$dir/watch.err"
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || fail "malformed PR metadata diagnostic watcher cycle failed"
+  assert_grep 'check: disabled malformed PR merge polls (re-arm required):' "$dir/watch.out" \
+    "malformed PR metadata was not identified as a broken merge poll"
+  assert_no_grep 'rejected unauthenticated state checks' "$dir/watch.out" \
+    "malformed PR metadata was mislabeled as an unauthenticated check"
+
+  dir=$(make_case pr-poll-trust-diagnostic)
+  state="$dir/home/state"
+  write_poll_meta "$state" task-a https://github.com/o/r/pull/52
+  seed_canonical_poll "$dir" task-a https://github.com/o/r/pull/52
+  chmod 0644 "$state/task-a.check.sh"
+  set +e
+  FM_TEST_GH_STATE=OPEN run_watcher_bounded "$dir/home" "$dir/fakebin" \
+    > "$dir/watch.out" 2> "$dir/watch.err"
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || fail "PR poll trust diagnostic watcher cycle failed"
+  assert_grep 'check: rejected unauthenticated state checks:' "$dir/watch.out" \
+    "a genuine PR poll trust failure lost its unauthenticated diagnostic"
+  assert_no_grep 'disabled malformed PR merge polls' "$dir/watch.out" \
+    "a genuine PR poll trust failure was mislabeled as malformed metadata"
+  pass "watcher diagnostics distinguish malformed PR metadata from trust failures"
 }
 
 test_custom_snapshot_cleanup_on_signal() {
@@ -2753,6 +2825,7 @@ SH
 }
 
 test_parser_matrix
+test_metadata_identity_is_order_independent_and_closed
 test_gitlab_merge_watch
 test_merged_poll_retires_once
 test_merged_poll_reregistration_after_notification_is_absorbed
@@ -2786,6 +2859,7 @@ test_device_rerecord_serializes_direct_rearm
 test_device_rerecord_serializes_rerecord
 test_postrename_poll_validation_revokes_and_retries
 test_bootstrap_leaves_unauthenticated_checks
+test_watcher_distinguishes_malformed_pr_metadata_from_trust_failure
 test_custom_snapshot_cleanup_on_signal
 test_returned_custom_check_descendants_are_drained
 test_teardown_removes_poll_artifacts
