@@ -78,6 +78,9 @@ When any diagnostic needs captain attention, report the plain consequence and re
 ## Startup digest composition reference
 
 The original step numbers are retained; wake handling and supervision instructions remain in AGENTS.md section 3.
+In the composition below, `the deferred startup stage above` and `the deferred stage` refer to the deferred-network description retained in `AGENTS.md` section 3.
+`that read-once contract` and `read-once reminders` refer to the read-once rules retained in `AGENTS.md` section 3, and `the emitted supervision block` refers to the supervision operating instructions retained in `AGENTS.md` section 3.
+`this section` refers locally to step 2's Bootstrap digest section moved here from `AGENTS.md` section 3, while `as before` refers to the current-state reconciliation rule retained in `AGENTS.md` section 2.
 
 1. **Lock** - acquires the per-home session lock first, before anything mutates shared state, then starts the deferred startup stage above.
 2. **Bootstrap** - detect-only checks (tool/version problems, the worktree-tangle check, harness override, dispatch-profile validation, backlog-backend status) always run, but routine confirmations stay silent by default.
