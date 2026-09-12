@@ -12,6 +12,7 @@ metadata:
 `docs/configuration.md` owns layout and schemas; producing script headers and help own mutation mechanics.
 This inventory is reference material, not permission to edit producer-owned records.
 Paths below are relative to the tracked code root or effective `FM_HOME`, as specified in AGENTS.md section 2.
+In the inventory below, `this file`, `section 4`, `section 6`, `section 10`, `section 13`, `section 14`, and `hard rule 1` all refer to `AGENTS.md`.
 
 ```
 AGENTS.md            this file (CLAUDE.md is a real @AGENTS.md pointer to it)
@@ -50,6 +51,7 @@ data/                personal fleet records; LOCAL, gitignored as a whole
   <id>/brief.md      per-task crewmate brief, or per-secondmate charter brief when kind=secondmate
   <id>/report.md     scout task deliverable, written by the crewmate; survives teardown
 projects/            cloned repos; gitignored; read-only except under hard rule 1's concrete captain-approved project operation exception
+state/               runtime records and signals; gitignored
   <id>.status        appended by crewmates: "<state>: <note>" wake-event lines, not current-state truth
   <id>.turn-ended    touched by turn-end hooks
   <id>.progress      touched for observed native-harness activity inside one Pi turn; bin/fm-busy-event.sh owns its generation binding and bin/fm-watch.sh reads it beside turn-ended for the busy-age bound only, never as a completed turn
