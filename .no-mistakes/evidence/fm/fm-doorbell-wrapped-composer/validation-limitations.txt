@@ -1,0 +1,4 @@
+Live agent-composer validation could not run because the pipeline executes outside a Herdr-managed pane.
+Coverage is characterization tests built from a real captured composer.
+The Zellij paste-and-Enter path is shell regression only because this fleet does not run Zellij.
+Live pane proof is tracked separately as fm-doorbell-live-pane-proof.
