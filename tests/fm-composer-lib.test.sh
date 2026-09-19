@@ -456,11 +456,11 @@ test_codex_animated_wrapped_doorbell_extracts_logical_line() {
   local bg="${ESC}[48;2;57;57;57m" inbox doorbell above prompt continuation1 continuation2 continuation3 below footer
   local screen out compact expected_compact stripped unwrapped_prompt unwrapped_screen
   inbox='/Users/example/firstmate/state/fm-doorbell-wrapped-composer.inbox'
-  doorbell=": Firstmate instruction waiting: list '$inbox'/*.msg and, in numeric order, read and act on each, then mv each handled file to '$inbox'/handled/."
+  doorbell=": Firstmate instruction waiting: list '$inbox'/*.msg and, › review this in numeric order, read and act on each, then mv each handled file to '$inbox'/handled/."
   above="${ESC}[0m${bg}       $(codex_cell 163 ⠄)${bg}                         "
   prompt="${ESC}[0m${ESC}[1m${bg}›${ESC}[0m${bg}: Firstmate instruction waiting: list '/Users/example/$(codex_cell 156 ⠂)"
   continuation1="${ESC}[0m${bg}firstmate/state/fm-doorbell-wrapped-composer.inbox'/*.msg and,${ESC}[0m$(codex_cell 165 ⠁)"
-  continuation2="${ESC}[0m${bg}in numeric order, read and act on each, then mv each handled file${ESC}[0m$(codex_cell 150 ⠂)"
+  continuation2="${ESC}[0m${bg}› review this in numeric order, read and act on each, then mv each handled file${ESC}[0m$(codex_cell 150 ⠂)"
   continuation3="${ESC}[0m${bg}to '/Users/example/firstmate/state/fm-doorbell-wrapped-composer.inbox'/handled/.${ESC}[0m$(codex_cell 161 ⠐)"
   below="${ESC}[0m${bg}          $(codex_cell 165 ⠠)${bg}                       "
   footer="  ${ESC}[0m${ESC}[38;2;246;226;183mgpt-6-astra high fast${ESC}[0m"

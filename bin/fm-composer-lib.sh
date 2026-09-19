@@ -1355,47 +1355,64 @@ _fm_composer_select_cursorless() {
 }
 
 # Normalize Codex's animated composer without assuming its physical height.
-# Starting one row above the bottom-most bare prompt, take the complete run of
-# rows painted with a TRUECOLOR background. The strict parser then proves that
-# the run has decoration boundaries and only non-empty wrapped input between
-# them. It emits the same row count, keeping cursor coordinates valid while
-# removing only proven animation furniture.
+# For each possible prompt row from bottom to top, take the complete run of rows
+# painted with a TRUECOLOR background. The strict parser then proves that the
+# run has decoration boundaries and only non-empty wrapped input between them.
+# It emits the same row count, keeping cursor coordinates valid while removing
+# only proven animation furniture.
 _fm_composer_normalize_codex_animation_screen_var() {  # <varname> <styled> [cursor-row]
   local __fmc_name=$1 __fmc_styled=$2 __fmc_cy=${3:-} __fmc_screen=${!1}
-  local __fmc_plain __fmc_g __fmc_end __fmc_last __fmc_candidate __fmc_raw
+  local __fmc_plain __fmc_g __fmc_end __fmc_last __fmc_candidate __fmc_raw __fmc_trimmed __fmc_glyph
   local __fmc_bg_token
+  FM_COMPOSER_CODEX_NORMALIZED_PROMPT_ROW=-1
   [ "$__fmc_styled" = 1 ] || return 0
   __fmc_plain=$(printf '%s\n' "$__fmc_screen" | fm_composer_strip_ansi)
-  _fm_composer_scan_screen "$__fmc_plain" "$__fmc_cy"
-  [ "$FM_COMPOSER_SCAN_BARE_ROW" -ge 1 ] || return 0
-  __fmc_g=$FM_COMPOSER_SCAN_BARE_ROW
   __fmc_bg_token=$(printf '\033[48;2;')
-  __fmc_raw=$(_fm_composer_screen_row "$((__fmc_g - 1))" "$__fmc_screen")
-  case "$__fmc_raw" in *"$__fmc_bg_token"*) ;; *) return 0 ;; esac
-  __fmc_raw=$(_fm_composer_screen_row "$__fmc_g" "$__fmc_screen")
-  case "$__fmc_raw" in *"$__fmc_bg_token"*) ;; *) return 0 ;; esac
   __fmc_last=$(printf '%s\n' "$__fmc_screen" | awk 'END { print NR - 1 }')
-  __fmc_end=$((__fmc_g + 1))
-  while [ "$__fmc_end" -le "$__fmc_last" ]; do
-    __fmc_raw=$(_fm_composer_screen_row "$__fmc_end" "$__fmc_screen")
-    case "$__fmc_raw" in
-      *"$__fmc_bg_token"*) __fmc_end=$((__fmc_end + 1)) ;;
-      *) break ;;
-    esac
-  done
-  __fmc_end=$((__fmc_end - 1))
-  [ "$__fmc_end" -gt "$__fmc_g" ] || return 0
-  __fmc_candidate=$(printf '%s\n' "$__fmc_screen" \
-    | sed -n "$((__fmc_g)), $((__fmc_end + 1))p" \
-    | fm_composer_strip_ghost codex-animation) || return 0
-  __fmc_screen=$(
-    if [ "$__fmc_g" -gt 1 ]; then
-      printf '%s\n' "$__fmc_screen" | sed -n "1,$((__fmc_g - 1))p"
+  __fmc_g=$__fmc_last
+  while [ "$__fmc_g" -ge 1 ]; do
+    __fmc_trimmed=$(_fm_composer_screen_row "$__fmc_g" "$__fmc_plain")
+    fm_composer_normalize_trim_var __fmc_trimmed
+    if fm_composer_leading_agent_glyph_var __fmc_glyph "$__fmc_trimmed"; then
+      __fmc_raw=$(_fm_composer_screen_row "$((__fmc_g - 1))" "$__fmc_screen")
+      case "$__fmc_raw" in
+        *"$__fmc_bg_token"*) ;;
+        *) __fmc_g=$((__fmc_g - 1)); continue ;;
+      esac
+      __fmc_raw=$(_fm_composer_screen_row "$__fmc_g" "$__fmc_screen")
+      case "$__fmc_raw" in
+        *"$__fmc_bg_token"*) ;;
+        *) __fmc_g=$((__fmc_g - 1)); continue ;;
+      esac
+      __fmc_end=$((__fmc_g + 1))
+      while [ "$__fmc_end" -le "$__fmc_last" ]; do
+        __fmc_raw=$(_fm_composer_screen_row "$__fmc_end" "$__fmc_screen")
+        case "$__fmc_raw" in
+          *"$__fmc_bg_token"*) __fmc_end=$((__fmc_end + 1)) ;;
+          *) break ;;
+        esac
+      done
+      __fmc_end=$((__fmc_end - 1))
+      if [ "$__fmc_end" -gt "$__fmc_g" ]; then
+        __fmc_candidate=$(printf '%s\n' "$__fmc_screen" \
+          | sed -n "$((__fmc_g)), $((__fmc_end + 1))p" \
+          | fm_composer_strip_ghost codex-animation) || __fmc_candidate=
+        if [ -n "$__fmc_candidate" ]; then
+          __fmc_screen=$(
+            if [ "$__fmc_g" -gt 1 ]; then
+              printf '%s\n' "$__fmc_screen" | sed -n "1,$((__fmc_g - 1))p"
+            fi
+            printf '%s\n' "$__fmc_candidate"
+            printf '%s\n' "$__fmc_screen" | sed -n "$((__fmc_end + 2)),\$p"
+          )
+          printf -v "$__fmc_name" '%s' "$__fmc_screen"
+          FM_COMPOSER_CODEX_NORMALIZED_PROMPT_ROW=$__fmc_g
+          return 0
+        fi
+      fi
     fi
-    printf '%s\n' "$__fmc_candidate"
-    printf '%s\n' "$__fmc_screen" | sed -n "$((__fmc_end + 2)),\$p"
-  )
-  printf -v "$__fmc_name" '%s' "$__fmc_screen"
+    __fmc_g=$((__fmc_g - 1))
+  done
 }
 
 fm_composer_extract_selected_content() {  # <caps> <screen>
@@ -1410,6 +1427,9 @@ EOF
   _fm_composer_normalize_codex_animation_screen_var screen "$styled"
   plain=$(printf '%s\n' "$screen" | fm_composer_strip_ansi)
   _fm_composer_scan_screen "$plain" '' 1
+  if [ "$FM_COMPOSER_CODEX_NORMALIZED_PROMPT_ROW" -ge 0 ]; then
+    FM_COMPOSER_SCAN_BARE_ROW=$FM_COMPOSER_CODEX_NORMALIZED_PROMPT_ROW
+  fi
   _fm_composer_select_cursorless "$plain" || return 1
   row=$FM_COMPOSER_SELECTED_FIRST
   while [ "$row" -le "$FM_COMPOSER_SELECTED_LAST" ]; do

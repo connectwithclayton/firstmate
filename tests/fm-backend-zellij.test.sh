@@ -1120,7 +1120,7 @@ test_send_text_submit_accepts_animated_wrapped_doorbell() {
   # send-failed with animation residue attached.
   local dir fb out text esc bg above prompt continuation1 continuation2 continuation3 below footer idle_prompt idle typed
   dir="$TMP_ROOT/submit-animated-wrapped-doorbell"; mkdir -p "$dir/responses"
-  text=": Firstmate instruction waiting: list '/Users/example/firstmate/state/fm-doorbell-wrapped-composer.inbox'/*.msg and, in numeric order, read and act on each, then mv each handled file to '/Users/example/firstmate/state/fm-doorbell-wrapped-composer.inbox'/handled/."
+  text=": Firstmate instruction waiting: list '/Users/example/firstmate/state/fm-doorbell-wrapped-composer.inbox'/*.msg and, › review this in numeric order, read and act on each, then mv each handled file to '/Users/example/firstmate/state/fm-doorbell-wrapped-composer.inbox'/handled/."
   esc=$(printf '\033')
   bg="${esc}[48;2;57;57;57m"
   above="${esc}[0m${bg}       ${esc}[38;2;163;163;163m${bg}⠄${esc}[0m${bg}                       "
@@ -1130,7 +1130,7 @@ test_send_text_submit_accepts_animated_wrapped_doorbell() {
   idle=$'transcript\n\n'"$above"$'\n'"$idle_prompt"$'\n'"$below"$'\n'"$footer"
   prompt="${esc}[0m${esc}[1m${bg}›${esc}[0m${bg}: Firstmate instruction waiting: list '/Users/example/${esc}[38;2;156;156;156m${bg}⠂${esc}[0m"
   continuation1="${esc}[0m${bg}firstmate/state/fm-doorbell-wrapped-composer.inbox'/*.msg and,${esc}[38;2;165;165;165m${bg}⠁${esc}[0m"
-  continuation2="${esc}[0m${bg}in numeric order, read and act on each, then mv each handled file${esc}[38;2;150;150;150m${bg}⠂${esc}[0m"
+  continuation2="${esc}[0m${bg}› review this in numeric order, read and act on each, then mv each handled file${esc}[38;2;150;150;150m${bg}⠂${esc}[0m"
   continuation3="${esc}[0m${bg}to '/Users/example/firstmate/state/fm-doorbell-wrapped-composer.inbox'/handled/.${esc}[38;2;161;161;161m${bg}⠐${esc}[0m"
   typed=$'transcript\n\n'"$above"$'\n'"$prompt"$'\n'"$continuation1"$'\n'"$continuation2"$'\n'"$continuation3"$'\n'"$below"$'\n'"$footer"
 
