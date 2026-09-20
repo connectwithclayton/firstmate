@@ -305,6 +305,12 @@ test_faster_paths_use_configured_authority_without_stacked_review() {
     "direct-PR brief lost configured merge authority"
   assert_no_grep "The captain reviews and merges the PR" "$brief" \
     "direct-PR brief hard-coded captain-only authority"
+  assert_grep "$ROOT/bin/fm-github-write.sh direct-pr $id" "$brief" \
+    "direct-PR brief did not route publication through the bounded GitHub-write command"
+  assert_grep "report that operator prerequisite instead of requesting broad Write Access" "$brief" \
+    "direct-PR brief did not keep a missing Automic prerequisite from widening launcher authority"
+  assert_no_grep "open a PR with \`gh-axi\`" "$brief" \
+    "direct-PR brief retained the unbounded forge-write instruction"
   id="brief-local-authority-a4"
   FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$id" local-proj --mode local-only >/dev/null 2>&1
   brief="$home/data/$id/brief.md"

@@ -229,6 +229,49 @@ With the flag absent the wedge timer spends no fold or current-state read for it
 The flag is a home-local supervision-noise preference and is not inherited by secondmate homes, which supervise their own crew and own that trade separately.
 [`architecture.md`](architecture.md) owns the wait-evidence contract and which records may take the ladder away; `bin/fm-watch.sh`'s `wedge_wait_evidence` owns the exact derivation and its fail-closed boundaries.
 
+## Automic Vault GitHub delivery authority
+
+Automic Vault installations should keep the `gh` Authorization Gate default at Read Only for every worker and firstmate launcher rather than granting those long-running processes broad Write Access.
+Preserve the exact `com.kunchenguid.no-mistakes` launcher rule at Write Access when no-mistakes delivery is expected to run without attended approvals.
+Direct-PR publication and autonomous GitHub merges use the reviewed [`bin/fm-github-write-av.sh`](../bin/fm-github-write-av.sh) Blessed Script, whose declaration limits authority to `gh: write` and `ssh-agent: trusted` while [`bin/fm-github-write.sh`](../bin/fm-github-write.sh) limits the concrete operation to one recorded task, project, branch, remote, pull request, and standing merge posture.
+The SSH capability is necessary for a non-force task-branch push because the installed public `av git push` command supports only `main`; the script supplies an exact GitHub SSH URL, disables project hooks, rejects matching Git URL rewrites, and accepts no caller repository coordinates.
+
+If the app bundle's CLI version and `/usr/local/bin/av --version` differ after an app update, choose **Update av CLI** once from the running Automic Vault menu rather than copying the privileged binary by hand.
+Verify the one-shot reinstall and the supported hardened Tool before reviewing a Blessing:
+
+```sh
+'/Applications/Automic Vault.app/Contents/MacOS/av' --version
+/usr/local/bin/av --version
+av doctor gh
+```
+
+From each verified launcher that will perform one of these operations, review and endorse the canonical Blessed Script:
+
+```sh
+av bless --endorse-launcher "$(pwd -P)/bin/fm-github-write-av.sh"
+```
+
+Run that command from the operational Firstmate home rather than a disposable task copy, and repeat it for each distinct verified launcher because a Launcher Endorsement never transfers to a sibling launcher.
+Firstmate is shell orchestration rather than a signed executable, so it is not itself eligible as a Verified Launcher; Automic Vault attributes the live signed app or standalone executable that launched it.
+A script-based harness such as an npm-installed Pi entry point is likewise ineligible, and Launcher Bundles support one unsigned Mach-O executable rather than scripts or directory-shaped tools.
+Use an eligible vendor-signed harness or an enrolled single-file Mach-O launcher for automic execution, then endorse only this exact Blessed Script instead of granting the whole launcher GitHub Write Access or Authorization History Access.
+A launcher that Automic Vault cannot verify remains in Approval Required behavior and cannot gain an endorsement through this path.
+Editing the declaration invalidates its Blessing, while changing `fm-github-write.sh` or `fm-pr-merge.sh` causes the reviewed path to refuse until the recorded SHA-256 bindings are updated and the Blessed Script is reviewed again.
+The generated direct-PR instructions name the bounded publication command and tell the worker to report a missing Blessing or endorsement rather than seek broader gate policy.
+`local-only` delivery remains entirely local through `bin/fm-merge-local.sh` and needs no GitHub authority.
+Secret listing, disclosure, mutation, unknown GitHub operations, force pushes, default-branch pushes, branch deletion, protection bypasses, red-check waivers, and caller-selected repository coordinates are outside this declaration and retain their ordinary Approval requirements.
+The installed Automic Vault help and its Blessed Script documentation remain authoritative for the review UI and policy semantics; the two scripts' headers own the exact Firstmate command and digest mechanics.
+
+### Bounded live verification after review
+
+Use a disposable private repository and a direct-PR task record whose fetch and push origins identify that repository, without pointing either origin at a production default branch.
+From every endorsed worker launcher, run the generated `direct-pr` command and confirm Authorization History attributes only the exact feature-branch push plus PR create or edit to the Blessed Script, with no broad launcher Write Access.
+Confirm the remote branch is exactly `fm/<task-id>`, its object ID matches local `HEAD`, and the returned pull request targets the verified origin default branch.
+From the endorsed firstmate launcher, run the generated merge command only on a green disposable PR with recorded `yolo=on`, then confirm the existing merge result and authority records complete normally.
+Repeat one refusal each for a wrong current directory, wrong branch, mismatched worktree origin, `yolo=off`, red checks, and a changed copy of either bound script, and confirm none produces a remote write.
+Confirm direct `git push`, direct `gh-axi pr create`, direct `gh-axi pr merge`, direct `gh pr create`, direct `gh pr merge`, `gh auth token`, and an unknown `gh api` write still require Approval from a Read Only worker launcher.
+Do not test the boundary with a real production write.
+
 ## Gate defaults (.no-mistakes.yaml)
 
 The tracked `.no-mistakes.yaml` sets `test.evidence.store_in_repo: true` and pins `commands.lint` to `bin/fm-lint.sh`, the same owner CI invokes.
