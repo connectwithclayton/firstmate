@@ -592,6 +592,40 @@ SH
   pass "interrupted re-arm reports the restored prior registration"
 }
 
+test_interrupted_rearm_does_not_claim_a_stale_shim_was_registered() {
+  local home fakebin status previous_shim real_mv
+  home=$(make_home interrupted-stale-shim)
+  fakebin=$(make_fake_gh_axi interrupted-stale-shim)
+  previous_shim='#!/usr/bin/env bash
+exit 0'
+  printf '%s\n' "$previous_shim" > "$home/state/runner-health.check.sh"
+  chmod 0700 "$home/state/runner-health.check.sh"
+  real_mv=$(command -v mv)
+  cat > "$fakebin/mv" <<SH
+#!/usr/bin/env bash
+"$real_mv" "\$@" || exit 1
+if [ "\${!#}" = "\${FAKE_INTERRUPT_DESTINATION:-}" ] && [ ! -e "\${FAKE_INTERRUPT_MARKER:?}" ]; then
+  : > "\$FAKE_INTERRUPT_MARKER"
+  kill -TERM "\$PPID"
+fi
+SH
+  chmod 0755 "$fakebin/mv"
+
+  status=0
+  env FM_HOME="$home" PATH="$fakebin:$PATH" \
+    FAKE_INTERRUPT_DESTINATION="$home/state/runner-health.check.sh" \
+    FAKE_INTERRUPT_MARKER="$home/interrupted-once" \
+    "$CHECK" arm "$REPOSITORY" "$LABEL" > "$home/out.txt" 2> "$home/err.txt" || status=$?
+  expect_code 1 "$status" "interrupted stale-shim re-arm exit"
+  assert_contains "$(cat "$home/err.txt")" 'state/runner-health.check.sh is not armed' \
+    "interrupted stale-shim re-arm falsely reported a restored registration"
+  assert_absent "$home/state/runner-health.check.sh" \
+    "interrupted stale-shim re-arm left an untrusted shim armed"
+  assert_absent "$home/state/runner-health.check-trust" \
+    "interrupted stale-shim re-arm left a trust binding"
+  pass "interrupted re-arm does not call a stale shim a restored registration"
+}
+
 test_arm_refuses_a_symlink_at_the_shim_path() {
   local home fakebin target status
   home=$(make_home symlink)
@@ -702,6 +736,7 @@ test_arm_registers_a_targeted_shim_and_disarm_removes_it
 test_arm_creates_a_private_state_directory
 test_failed_rearm_restores_the_previous_registration
 test_interrupted_rearm_reports_restored_registration
+test_interrupted_rearm_does_not_claim_a_stale_shim_was_registered
 test_arm_refuses_a_symlink_at_the_shim_path
 test_arm_and_disarm_refuse_a_symlinked_state_directory
 test_arm_rejects_a_dangling_state_symlink_before_mkdir

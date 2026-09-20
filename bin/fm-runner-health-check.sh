@@ -385,6 +385,7 @@ state_file_backup() {
 ARM_BACKUP=
 ARM_TRUST_BACKUP=
 ARM_HAD_TRUST=0
+ARM_PRIOR_REGISTERED=0
 ARM_ROLLBACK_RESTORED=0
 
 arm_rollback() {
@@ -406,7 +407,7 @@ arm_rollback() {
   elif [ "$ARM_HAD_TRUST" -eq 0 ]; then
     safe_remove_state_file "$CHECK_TRUST" || return 1
   fi
-  if [ "$restored" -eq 1 ]; then
+  if [ "$restored" -eq 1 ] && [ "$ARM_PRIOR_REGISTERED" -eq 1 ]; then
     ARM_ROLLBACK_RESTORED=1
     return 0
   fi
@@ -457,6 +458,10 @@ action_arm() {
   ARM_BACKUP=
   ARM_TRUST_BACKUP=
   ARM_HAD_TRUST=0
+  ARM_PRIOR_REGISTERED=0
+  if fm_custom_check_registered "$STATE" "$CHECK_ID"; then
+    ARM_PRIOR_REGISTERED=1
+  fi
   if [ -f "$CHECK_SHIM" ] && [ ! -L "$CHECK_SHIM" ]; then
     ARM_BACKUP=$(state_file_backup "$CHECK_SHIM" 700) || {
       printf 'fm-runner-health-check: could not save the existing %s\n' "$CHECK_SHIM" >&2
