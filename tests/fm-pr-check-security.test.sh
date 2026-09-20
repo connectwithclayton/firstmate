@@ -225,8 +225,8 @@ write_task_meta() {
     "mode=no-mistakes"
 }
 
-# Extra "field=value" arguments are written before pr=, because
-# fm_pr_metadata_identity_parse rejects an unrecognised line after it.
+# Extra "field=value" arguments must name fields in the parser's closed set;
+# their position relative to pr= does not affect identity validation.
 write_poll_meta() {
   local state=$1 id=$2 url=$3
   shift 3
