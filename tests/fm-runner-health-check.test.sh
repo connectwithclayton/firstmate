@@ -522,6 +522,41 @@ test_arm_creates_a_private_state_directory() {
   pass "arm creates a missing state directory with private permissions"
 }
 
+test_failed_rearm_restores_the_previous_registration() {
+  local home fakebin status previous_shim previous_trust real_mv
+  home=$(make_home rearm-rollback)
+  fakebin=$(make_fake_gh_axi rearm-rollback)
+
+  env FM_HOME="$home" PATH="$fakebin:$PATH" "$CHECK" arm "$REPOSITORY" "$LABEL" >/dev/null \
+    || fail "initial arm failed"
+  previous_shim=$(cat "$home/state/runner-health.check.sh")
+  previous_trust=$(cat "$home/state/runner-health.check-trust")
+  real_mv=$(command -v mv)
+  cat > "$fakebin/mv" <<SH
+#!/usr/bin/env bash
+if [ "\${!#}" = "\${FAKE_REJECTED_DESTINATION:-}" ] && [ "\${FAKE_REJECT_MOVE:-0}" -eq 1 ]; then
+  if [ ! -e "\${FAKE_REJECT_MARKER:?}" ]; then
+    : > "\$FAKE_REJECT_MARKER"
+    exit 1
+  fi
+fi
+exec "$real_mv" "\$@"
+SH
+  chmod 0755 "$fakebin/mv"
+
+  status=0
+  env FM_HOME="$home" PATH="$fakebin:$PATH" FAKE_REJECT_MOVE=1 \
+    FAKE_REJECTED_DESTINATION="$home/state/runner-health.check-trust" \
+    FAKE_REJECT_MARKER="$home/rejected-once" \
+    "$CHECK" arm "$REPOSITORY" replacement-label >/dev/null 2>&1 || status=$?
+  expect_code 1 "$status" "failed re-arm exit"
+  [ "$(cat "$home/state/runner-health.check.sh")" = "$previous_shim" ] \
+    || fail "failed re-arm did not restore the previous shim"
+  [ "$(cat "$home/state/runner-health.check-trust")" = "$previous_trust" ] \
+    || fail "failed re-arm did not restore the previous trust binding"
+  pass "failed re-arm restores the previous shim and trust binding"
+}
+
 test_arm_refuses_a_symlink_at_the_shim_path() {
   local home fakebin target status
   home=$(make_home symlink)
@@ -630,6 +665,7 @@ test_api_timeout_finishes_inside_the_watcher_bound
 test_target_validation_refuses_unsafe_or_ambiguous_values
 test_arm_registers_a_targeted_shim_and_disarm_removes_it
 test_arm_creates_a_private_state_directory
+test_failed_rearm_restores_the_previous_registration
 test_arm_refuses_a_symlink_at_the_shim_path
 test_arm_and_disarm_refuse_a_symlinked_state_directory
 test_arm_rejects_a_dangling_state_symlink_before_mkdir

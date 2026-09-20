@@ -368,14 +368,14 @@ shim_write() {
   fm_pr_private_file_valid "$CHECK_SHIM" 700 "$device"
 }
 
-shim_backup() {
-  local device tmp
+state_file_backup() {
+  local source=$1 mode=$2 device tmp
   device=$(fm_pr_file_device "$STATE") || return 1
   [ -n "$device" ] || return 1
   tmp=$(umask 077; mktemp "$STATE/.fm-runner-health-check.XXXXXX" 2>/dev/null) || return 1
-  if ! cat "$CHECK_SHIM" > "$tmp" 2>/dev/null \
-    || ! chmod 0700 "$tmp" \
-    || ! fm_pr_private_file_valid "$tmp" 700 "$device"; then
+  if ! cat "$source" > "$tmp" 2>/dev/null \
+    || ! chmod "$mode" "$tmp" \
+    || ! fm_pr_private_file_valid "$tmp" "$mode" "$device"; then
     rm -f -- "$tmp"
     return 1
   fi
@@ -383,20 +383,28 @@ shim_backup() {
 }
 
 ARM_BACKUP=
+ARM_TRUST_BACKUP=
+ARM_HAD_TRUST=0
 
 arm_rollback() {
+  local restored=0
   [ -z "$SHIM_WRITE_TMP" ] || safe_remove_state_file "$SHIM_WRITE_TMP" || true
   SHIM_WRITE_TMP=
   if [ -n "$ARM_BACKUP" ]; then
     if safe_restore_state_file "$ARM_BACKUP" "$CHECK_SHIM" 2>/dev/null; then
       ARM_BACKUP=
-      if fm_custom_check_registered "$STATE" "$CHECK_ID"; then
-        return 0
-      fi
+      restored=1
     else
       return 1
     fi
   fi
+  if [ -n "$ARM_TRUST_BACKUP" ]; then
+    safe_restore_state_file "$ARM_TRUST_BACKUP" "$CHECK_TRUST" 2>/dev/null || return 1
+    ARM_TRUST_BACKUP=
+  elif [ "$ARM_HAD_TRUST" -eq 0 ]; then
+    safe_remove_state_file "$CHECK_TRUST" || return 1
+  fi
+  [ "$restored" -eq 0 ] || return 0
   safe_remove_state_file "$CHECK_SHIM"
 }
 
@@ -435,9 +443,20 @@ action_arm() {
   esac
   want=$(shim_content "$home" "$repository" "$label")
   ARM_BACKUP=
+  ARM_TRUST_BACKUP=
+  ARM_HAD_TRUST=0
   if [ -f "$CHECK_SHIM" ] && [ ! -L "$CHECK_SHIM" ]; then
-    ARM_BACKUP=$(shim_backup) || {
+    ARM_BACKUP=$(state_file_backup "$CHECK_SHIM" 700) || {
       printf 'fm-runner-health-check: could not save the existing %s\n' "$CHECK_SHIM" >&2
+      return 1
+    }
+  fi
+  if [ -f "$CHECK_TRUST" ] && [ ! -L "$CHECK_TRUST" ]; then
+    ARM_HAD_TRUST=1
+    ARM_TRUST_BACKUP=$(state_file_backup "$CHECK_TRUST" 600) || {
+      [ -z "$ARM_BACKUP" ] || safe_remove_state_file "$ARM_BACKUP" 2>/dev/null || true
+      ARM_BACKUP=
+      printf 'fm-runner-health-check: could not save the existing %s\n' "$CHECK_TRUST" >&2
       return 1
     }
   fi
@@ -456,7 +475,9 @@ action_arm() {
   fi
   trap - HUP INT TERM
   [ -z "$ARM_BACKUP" ] || rm -f -- "$ARM_BACKUP"
+  [ -z "$ARM_TRUST_BACKUP" ] || rm -f -- "$ARM_TRUST_BACKUP"
   ARM_BACKUP=
+  ARM_TRUST_BACKUP=
   printf 'armed: state/%s.check.sh for %s label %s\n' "$CHECK_ID" "$repository" "$label"
 }
 
