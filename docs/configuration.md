@@ -672,6 +672,7 @@ Arm it once per home with `bin/fm-runner-health-check.sh arm <owner/repo> <runne
 For example, `bin/fm-runner-health-check.sh arm connectwithclayton/toolroll toolroll-mac` watches Toolroll's Apple-dependent runner.
 
 Arming writes `state/runner-health.check.sh` and binds its bytes through `bin/fm-check-register.sh`.
+Re-arming replaces the shim and trust binding transactionally; if replacement fails or is interrupted after an existing registration is saved, rollback restores that prior registration and reports that it was restored.
 The existing watcher polls that private check on its ordinary cadence and turns a report into a `check:` wake.
 It does not add work to session start, start a watcher by itself, or introduce another scheduler.
 It reads every page from the repository runners endpoint before deriving the verdict, so a matching online runner on any page keeps the poll healthy.
