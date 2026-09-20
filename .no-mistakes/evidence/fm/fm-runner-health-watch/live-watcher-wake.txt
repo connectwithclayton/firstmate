@@ -1,0 +1,6 @@
+$ arm missing label into isolated existing watcher
+armed: state/runner-health.check.sh for connectwithclayton/toolroll label nm-live-watcher-20260920
+$ run existing watcher checkpoint against real GitHub API
+check: /var/folders/nz/2_wts0tj2_s7x1flcwlpvvdh0000gn/T//runner-health-watcher.oDoj8n/state/runner-health.check.sh: runner health: connectwithclayton/toolroll has no registered runner with label nm-live-watcher-20260920
+$ disarm isolated watcher registration
+disarmed: state/runner-health.check.sh

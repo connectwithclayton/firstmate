@@ -1,0 +1,8 @@
+$ check with FM_STATE_OVERRIDE=<symlink>
+exit=1 stdout_bytes=0
+fm-runner-health-check: refusing state path <isolated>/state: a symlink; a real private directory is required
+$ arm with same symlinked state
+exit=1 stdout_bytes=0
+fm-runner-health-check: refusing state path <isolated>/state: a symlink; a real private directory is required
+fm-runner-health-check: state directory is unavailable
+target_sentinel=sentinel external_record_present=no external_shim_present=no

@@ -1,0 +1,14 @@
+$ gh-axi api /repos/connectwithclayton/toolroll/actions/runners --paginate --jq <runner projection> --full
+busy: false
+labels[4]: self-hosted,macOS,ARM64,toolroll-mac
+name: toolroll-mac
+status: online
+
+$ FM_HOME=<isolated> bin/fm-runner-health-check.sh arm connectwithclayton/toolroll toolroll-mac
+armed: state/runner-health.check.sh for connectwithclayton/toolroll label toolroll-mac
+armed shim mode=700 trust mode=600
+$ isolated armed shim (healthy target)
+stdout_bytes=0
+$ FM_HOME=<isolated> bin/fm-runner-health-check.sh disarm
+disarmed: state/runner-health.check.sh
+watch artifacts removed

@@ -1,0 +1,6 @@
+$ check with gh-axi unavailable on PATH, after a known outage was persisted
+stdout_bytes=0 record_unchanged=yes
+$ retained persisted public state contract
+fm-runner-health-v1
+target=connectwithclayton/toolroll@nm-live-unavailable-20260920
+reported=missing

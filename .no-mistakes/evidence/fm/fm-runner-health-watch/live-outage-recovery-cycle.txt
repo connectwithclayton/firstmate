@@ -1,0 +1,12 @@
+$ check connectwithclayton/toolroll nm-live-missing-20260920 (real API, label absent)
+runner health: connectwithclayton/toolroll has no registered runner with label nm-live-missing-20260920
+$ repeat same missing-label check
+repeat_stdout_bytes=0
+$ check real online toolroll-mac label (silent recovery)
+recovery_stdout_bytes=0
+$ check missing label again after recovery
+runner health: connectwithclayton/toolroll has no registered runner with label nm-live-missing-20260920
+$ persisted public state contract
+fm-runner-health-v1
+target=connectwithclayton/toolroll@nm-live-missing-20260920
+reported=missing
