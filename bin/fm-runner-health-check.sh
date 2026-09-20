@@ -385,9 +385,11 @@ state_file_backup() {
 ARM_BACKUP=
 ARM_TRUST_BACKUP=
 ARM_HAD_TRUST=0
+ARM_ROLLBACK_RESTORED=0
 
 arm_rollback() {
   local restored=0
+  ARM_ROLLBACK_RESTORED=0
   [ -z "$SHIM_WRITE_TMP" ] || safe_remove_state_file "$SHIM_WRITE_TMP" || true
   SHIM_WRITE_TMP=
   if [ -n "$ARM_BACKUP" ]; then
@@ -404,14 +406,24 @@ arm_rollback() {
   elif [ "$ARM_HAD_TRUST" -eq 0 ]; then
     safe_remove_state_file "$CHECK_TRUST" || return 1
   fi
-  [ "$restored" -eq 0 ] || return 0
+  if [ "$restored" -eq 1 ]; then
+    ARM_ROLLBACK_RESTORED=1
+    return 0
+  fi
   safe_remove_state_file "$CHECK_SHIM"
 }
 
 # shellcheck disable=SC2329  # Registered by action_arm's signal trap.
 arm_interrupted() {
-  arm_rollback
-  printf 'fm-runner-health-check: arming was interrupted, so state/%s.check.sh is not armed\n' "$CHECK_ID" >&2
+  local rollback_status=0
+  arm_rollback || rollback_status=$?
+  if [ "$ARM_ROLLBACK_RESTORED" -eq 1 ]; then
+    printf 'fm-runner-health-check: arming was interrupted; the prior state/%s.check.sh registration was restored\n' "$CHECK_ID" >&2
+  elif [ "$rollback_status" -eq 0 ]; then
+    printf 'fm-runner-health-check: arming was interrupted, so state/%s.check.sh is not armed\n' "$CHECK_ID" >&2
+  else
+    printf 'fm-runner-health-check: arming was interrupted and rollback could not establish the state/%s.check.sh registration state\n' "$CHECK_ID" >&2
+  fi
   exit 1
 }
 

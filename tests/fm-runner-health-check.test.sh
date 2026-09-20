@@ -557,6 +557,41 @@ SH
   pass "failed re-arm restores the previous shim and trust binding"
 }
 
+test_interrupted_rearm_reports_restored_registration() {
+  local home fakebin status previous_shim previous_trust real_mv
+  home=$(make_home interrupted-rearm)
+  fakebin=$(make_fake_gh_axi interrupted-rearm)
+
+  env FM_HOME="$home" PATH="$fakebin:$PATH" "$CHECK" arm "$REPOSITORY" "$LABEL" >/dev/null \
+    || fail "initial arm failed"
+  previous_shim=$(cat "$home/state/runner-health.check.sh")
+  previous_trust=$(cat "$home/state/runner-health.check-trust")
+  real_mv=$(command -v mv)
+  cat > "$fakebin/mv" <<SH
+#!/usr/bin/env bash
+"$real_mv" "\$@" || exit 1
+if [ "\${!#}" = "\${FAKE_INTERRUPT_DESTINATION:-}" ] && [ ! -e "\${FAKE_INTERRUPT_MARKER:?}" ]; then
+  : > "\$FAKE_INTERRUPT_MARKER"
+  kill -TERM "\$PPID"
+fi
+SH
+  chmod 0755 "$fakebin/mv"
+
+  status=0
+  env FM_HOME="$home" PATH="$fakebin:$PATH" \
+    FAKE_INTERRUPT_DESTINATION="$home/state/runner-health.check.sh" \
+    FAKE_INTERRUPT_MARKER="$home/interrupted-once" \
+    "$CHECK" arm "$REPOSITORY" replacement-label > "$home/out.txt" 2> "$home/err.txt" || status=$?
+  expect_code 1 "$status" "interrupted re-arm exit"
+  assert_contains "$(cat "$home/err.txt")" 'prior state/runner-health.check.sh registration was restored' \
+    "interrupted re-arm did not report its restored registration"
+  [ "$(cat "$home/state/runner-health.check.sh")" = "$previous_shim" ] \
+    || fail "interrupted re-arm did not restore the previous shim"
+  [ "$(cat "$home/state/runner-health.check-trust")" = "$previous_trust" ] \
+    || fail "interrupted re-arm did not restore the previous trust binding"
+  pass "interrupted re-arm reports the restored prior registration"
+}
+
 test_arm_refuses_a_symlink_at_the_shim_path() {
   local home fakebin target status
   home=$(make_home symlink)
@@ -666,6 +701,7 @@ test_target_validation_refuses_unsafe_or_ambiguous_values
 test_arm_registers_a_targeted_shim_and_disarm_removes_it
 test_arm_creates_a_private_state_directory
 test_failed_rearm_restores_the_previous_registration
+test_interrupted_rearm_reports_restored_registration
 test_arm_refuses_a_symlink_at_the_shim_path
 test_arm_and_disarm_refuse_a_symlinked_state_directory
 test_arm_rejects_a_dangling_state_symlink_before_mkdir
