@@ -4,7 +4,8 @@
  * This is the authority-bearing payload for Cursor worker GitHub reads.
  * It is compiled into one native executable, enrolled as an Automic Vault
  * Launcher Bundle, and reached by Cursor workers through a protected PATH
- * directory whose `gh` entry links to the enrolled command.
+ * directory whose `gh` router sends accepted shapes to the enrolled command.
+ * All other shapes go to the generic attended GitHub CLI path.
  * bin/fm-gh-read.sh owns the build, plan, verification, and attended
  * installation contract; docs/gh-read-helper.md owns the operator guide.
  *

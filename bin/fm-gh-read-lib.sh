@@ -6,9 +6,10 @@
 # The helper itself (bin/native/fm-gh-read.c) is the authority-bearing part:
 # it is enrolled as an Automic Vault Launcher Bundle and exposes only a closed
 # read API. This library owns the one routing decision Firstmate makes about
-# it: whether a Cursor ship or scout launch prepends the protected helper
-# PATH directory, so the worker's `gh` (including gh-axi's execFile("gh"))
-# resolves to the enrolled helper instead of the generic hardened gh.
+# it: whether a Cursor ship or scout launch prepends the protected router
+# PATH directory. The router sends accepted closed reads from `gh` or
+# gh-axi's execFile("gh") to the enrolled helper and every other shape to the
+# generic attended GitHub CLI path.
 #
 # The directory is routing, never authority. It is honored only when every
 # path component, the `gh` router, and every hop its helper target resolves through is

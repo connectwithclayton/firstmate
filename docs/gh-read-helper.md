@@ -22,7 +22,7 @@ Release metadata is omitted until a current Firstmate use is proven.
 [`bin/native/fm-gh-read.c`](../bin/native/fm-gh-read.c) is the complete allowlist.
 
 Some `gh-axi` reads issue optional GraphQL totals or REST review augmentation.
-Those fall through to the helper as generic `api` forms and are denied; the primary `gh` list or view still succeeds when `gh-axi` treats the extra call as optional.
+The router sends those generic `api` forms to the attended `gh` path, where they gain no automatic authority; the primary closed list or view still succeeds when `gh-axi` treats the extra call as optional.
 
 ## Installation and enrollment
 

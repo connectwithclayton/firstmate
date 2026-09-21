@@ -2162,11 +2162,11 @@ cursor)
       fi
     fi
   fi
-  # A Cursor ship or scout reaches GitHub through the enrolled read helper
-  # when its protected PATH directory is installed, so gh and gh-axi reads
-  # stop requiring per-command approval (bin/fm-gh-read-lib.sh). Secondmates
-  # are supervisors and keep the generic gh. A present but unsafe directory
-  # refuses the launch rather than silently falling back.
+  # When its protected PATH directory is installed, a Cursor ship or scout
+  # routes accepted closed reads through the enrolled helper and all other
+  # GitHub operations through generic attended gh (bin/fm-gh-read-lib.sh).
+  # Secondmates keep generic gh. A present but unsafe directory refuses the
+  # launch rather than silently falling back.
   GH_READ_CURSOR_DIR=
   if [ "$KIND" = ship ] || [ "$KIND" = scout ]; then
     # Absent (exit 1) is the uninstalled default and must not trip set -e.
