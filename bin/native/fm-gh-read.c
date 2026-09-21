@@ -90,16 +90,7 @@ struct shape {
 };
 
 static const struct shape SHAPES[] = {
-    {"repo", "view", POS_OPTIONAL, V_REPO, {{"--json", V_FIELDS, 1}}},
-    {"repo",
-     "list",
-     POS_OPTIONAL,
-     V_LOGIN,
-     {{"--json", V_FIELDS, 1},
-      {"--limit", V_LIMIT, 1},
-      {"--visibility", V_VISIBILITY, 1},
-      {"--language", V_TEXT, 1},
-      {"--archived", V_NONE, 1}}},
+    {"repo", "view", POS_REQUIRED, V_REPO, {{"--json", V_FIELDS, 1}}},
     {"pr",
      "list",
      POS_NONE,
@@ -399,7 +390,7 @@ static const struct shape *find_shape(const char *family, const char *verb) {
 static void validate(int argc, char **argv) {
   const struct shape *shape;
   int counts[MAX_OPTIONS] = {0};
-  int i, have_positional = 0, have_job = 0;
+  int i, have_positional = 0, have_job = 0, have_repo = 0;
 
   if (argc < 3) {
     deny("a family and read verb are required", NULL);
@@ -442,6 +433,9 @@ static void validate(int argc, char **argv) {
       if (!valid_value(shape->options[found].kind, argv[i + 1])) {
         deny("invalid option value", arg);
       }
+      if (shape->options[found].kind == V_REPO) {
+        have_repo = 1;
+      }
       if (strcmp(arg, "--job") == 0) {
         have_job = 1;
       }
@@ -457,6 +451,9 @@ static void validate(int argc, char **argv) {
         deny("invalid selector", arg);
       }
       have_positional = 1;
+      if (shape->positional_kind == V_REPO) {
+        have_repo = 1;
+      }
     }
   }
 
@@ -465,6 +462,9 @@ static void validate(int argc, char **argv) {
   }
   if (shape->positional == POS_OR_JOB && !have_positional && !have_job) {
     deny("a run id or --job is required", argv[2]);
+  }
+  if (!have_repo) {
+    deny("a canonical owner/name repository selector is required", argv[2]);
   }
 }
 

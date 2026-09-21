@@ -17,7 +17,7 @@
 #   fm-gh-read.sh build --out <path> [--fake-target <absolute-path>]
 #   fm-gh-read.sh plan [--command <path>]
 #   fm-gh-read.sh verify --payload <path> [--command <path>]
-#                        [--signed-sha256 <hex>] [--history <file>]
+#                        [--signed-sha256 <hex>]
 #   fm-gh-read.sh install-path --command <path>
 #   fm-gh-read.sh --help
 #
@@ -50,12 +50,9 @@
 #                  Automic Vault gh Isotope's Team ID.
 #   cursor-path    the protected Cursor PATH directory holds exactly `gh`,
 #                  linked to --command, through protected hops.
-#   gate           --history names an Authorization History JSON export the
-#                  operator made (`av history --json`); at least one record
-#                  that mentions the helper must mention Read Only and none
-#                  may mention Write. History field names are not a published
-#                  schema, so this matches record text, and the operator
-#                  still confirms the helper's Gate row in the App.
+#   gate           remains unverified because Authorization History has no
+#                  published machine-readable schema. The operator confirms
+#                  launcher identity and Read Only authorization in the App.
 #
 # install-path is the only mutating command. It creates the protected Cursor
 # PATH directory and its `gh` link to --command through sudo, and only after
@@ -196,7 +193,7 @@ Attended steps, in order (nothing below runs from this command):
   4. Create the Cursor PATH directory (sudo, interactive):
      $0 install-path --command <installed command link>
   5. Verify: $0 verify --payload <payload> --command <link>
-       --signed-sha256 <signed-payload hash> --history <history export>
+       --signed-sha256 <signed-payload hash>
   6. From a real Cursor worker, run one harmless read per family and confirm
      in Authorization History that the helper is the launcher and the
      helper's Read Only row authorized it automatically.
@@ -204,14 +201,13 @@ EOF
 }
 
 cmd_verify() {
-  local payload='' command=$DEFAULT_COMMAND signed='' history='' work built_digest payload_digest
-  local resolved='' sig ents bad actual dir link_target helper_records readonly_records write_records
+  local payload='' command=$DEFAULT_COMMAND signed='' work built_digest payload_digest
+  local resolved='' sig ents bad actual dir link_target
   while [ $# -gt 0 ]; do
     case "$1" in
     --payload) [ $# -ge 2 ] || die "--payload needs a path" 2; payload=$2; shift 2 ;;
     --command) [ $# -ge 2 ] || die "--command needs a path" 2; command=$2; shift 2 ;;
     --signed-sha256) [ $# -ge 2 ] || die "--signed-sha256 needs a digest" 2; signed=$2; shift 2 ;;
-    --history) [ $# -ge 2 ] || die "--history needs a file" 2; history=$2; shift 2 ;;
     *) die "unknown verify argument: $1" 2 ;;
     esac
   done
@@ -301,25 +297,7 @@ cmd_verify() {
     report cursor-path FAIL "$(cursor_path_state)"
   fi
 
-  if [ -z "$history" ]; then
-    report gate unverified "pass --history with an Authorization History export"
-  elif ! command -v jq >/dev/null 2>&1; then
-    report gate FAIL "jq is unavailable"
-  elif ! jq -e . "$history" >/dev/null 2>&1; then
-    report gate FAIL "not valid JSON: $history"
-  else
-    helper_records=$(jq --arg c "$command" --arg r "${resolved:-$command}" '
-      [.. | objects | select([.. | strings] | any(contains($c) or contains($r)))]' "$history")
-    readonly_records=$(printf '%s' "$helper_records" | jq '[.[] | select([.. | strings] | any(test("Read Only")))] | length')
-    write_records=$(printf '%s' "$helper_records" | jq '[.[] | select([.. | strings] | any(test("Write")))] | length')
-    if [ "$write_records" -gt 0 ]; then
-      report gate FAIL "$write_records helper record(s) mention Write"
-    elif [ "$readonly_records" -gt 0 ]; then
-      report gate ok "$readonly_records helper record(s) at Read Only, none at Write"
-    else
-      report gate FAIL "no helper record mentions Read Only"
-    fi
-  fi
+  report gate unverified "confirm helper launcher identity and Read Only authorization in the App"
 
   [ "$VERIFY_FAILED" -eq 0 ]
 }

@@ -14,8 +14,8 @@ Only a Cursor ship or scout launch prepends the protected PATH directory whose `
 
 ## Closed read surface
 
-Accepted families are repository `view`/`list`, pull request `list`/`view`/`checks`, issue `list`/`view`, Actions run `list`/`view`, and workflow `list`/`view`.
-Repository selectors must be canonical `owner/name`.
+Accepted families are repository `view`, pull request `list`/`view`/`checks`, issue `list`/`view`, Actions run `list`/`view`, and workflow `list`/`view`.
+Every invocation requires a canonical `owner/name` repository selector so `gh` never derives a repository or host from local Git context.
 Numeric `--limit` values are bounded.
 Release metadata is omitted until a current Firstmate use is proven.
 [`bin/native/fm-gh-read.c`](../bin/native/fm-gh-read.c) is the complete allowlist.
@@ -32,7 +32,8 @@ Launcher Bundle enrollment and the helper-specific Gate row happen only in the A
 `install-path` is the only mutating command in the script: it creates the protected Cursor PATH directory through `sudo` after the operator types `install` at an interactive terminal, and it refuses a non-interactive run, a test-directory override, and a command that is not already a protected executable.
 
 Verify the built payload digest, code signature, entitlements, protected ownership and link, exact `/usr/local/bin/gh` target, and current Gate attribution before trusting a Cursor worker to use the helper.
-`verify` never contacts Automic Vault or GitHub; Gate attribution is read from an operator-exported Authorization History JSON file.
+`verify` never contacts Automic Vault or GitHub and leaves Gate attribution unverified because Authorization History has no published machine-readable schema.
+Confirm in the App that the helper was the launcher and its exact Read Only row authorized the request.
 
 ## Tests
 

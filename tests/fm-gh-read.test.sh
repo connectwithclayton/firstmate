@@ -132,26 +132,22 @@ expect_denied() {
 }
 
 # One allowed shape per line, space separated. Values never contain spaces.
-ALLOWED_SHAPES='repo view
+ALLOWED_SHAPES='repo view kunchenguid/firstmate
 repo view kunchenguid/firstmate --json name,description
-repo list
-repo list kunchenguid --json name,visibility --limit 30 --visibility public --language Go --archived
 pr list --json number,title,state,author,headRefName,isDraft --state open --limit 30 --repo owner/repo
 pr list --json number,title --state all --limit 1000 --label bug --label docs --assignee @me --author octo-cat --base main --head fm/fix-1 --draft --repo o/r
 pr view 42 --json number,title,statusCheckRollup --repo owner/repo.name
-pr view 42
 pr checks 42 --required --json name,state,bucket --repo o/r
-pr checks 42
-issue list --json number,title,state,author,createdAt --limit 30
+issue list --json number,title,state,author,createdAt --limit 30 --repo o/r
 issue list --json number --limit 1 --state closed --label bug --assignee octocat --author @me --milestone v1.2 --search sort:updated-desc --repo o/r
 issue view 7 --json number,title,body --repo o/r
 run list --json databaseId,status --limit 10 --workflow ci.yml --branch main --status completed --event pull_request --user octocat --commit 0123abc --repo o/r
-run view 123456789
-run view --job 987 --json databaseId
+run view 123456789 --repo o/r
+run view --job 987 --json databaseId --repo o/r
 run view 5 --job 6 --json jobs --repo o/r
 workflow list --json id,name,state,path --limit 20 --all --repo o/r
 workflow view ci.yml --repo o/r
-workflow view 12345'
+workflow view 12345 --repo o/r'
 
 test_every_allowed_shape_reaches_the_target_exactly() {
   local line count=0
@@ -161,12 +157,12 @@ test_every_allowed_shape_reaches_the_target_exactly() {
     expect_allowed "$line" "${args[@]}"
     count=$((count + 1))
   done <<<"$ALLOWED_SHAPES"
-  [ "$count" -ge 20 ] || fail "the allowed-shape table shrank to $count cases"
+  [ "$count" -ge 16 ] || fail "the allowed-shape table shrank to $count cases"
   pass "all $count allowed shapes reach the fake target byte for byte, as its parent, with a scrubbed environment"
 }
 
 test_target_exit_status_is_propagated() {
-  run_helper pr view 4242
+  run_helper pr view 4242 --repo o/r
   expect_code 7 "$RUN_STATUS" "the target's exit status must pass through"
   pass "the target's exit status passes through unchanged"
 }
@@ -179,7 +175,7 @@ test_invocation_name_does_not_change_policy() {
   "$link" pr create --title x >/dev/null 2>&1
   expect_code 64 "$?" "a helper invoked as gh must still deny writes"
   [ ! -e "$LOG/argv" ] || fail "the target started for a write invoked through a gh link"
-  "$link" pr view 1 >/dev/null 2>&1
+  "$link" pr view 1 --repo o/r >/dev/null 2>&1
   expect_code 0 "$?" "a helper invoked as gh must still allow reads"
   pass "invoking the helper through a link named gh changes nothing"
 }
@@ -237,7 +233,7 @@ test_equals_and_duplicate_forms_are_denied() {
   expect_denied "duplicate PR selector" pr view 1 2
   expect_denied "duplicate repository selector" repo view o/r o/s
   expect_denied "duplicate run selector" run view 1 2
-  trial=(pr list)
+  trial=(pr list --repo o/r)
   for ((i = 0; i < 20; i++)); do trial+=(--label "l$i"); done
   expect_allowed "twenty labels" "${trial[@]}"
   trial+=(--label l20)
@@ -257,7 +253,7 @@ test_malformed_selectors_and_limits_are_denied() {
   for value in 0 -1 1001 01 1e3 abc 10000 " 5" +5 99999999999999999999; do
     expect_denied "limit '$value'" pr list --limit "$value"
   done
-  expect_allowed "the largest limit" issue list --limit 1000
+  expect_allowed "the largest limit" issue list --limit 1000 --repo o/r
   for value in 0 -5 12a 042 1.5 12345678901234567890 "#1" https://github.com/o/r/pull/1; do
     expect_denied "PR selector '$value'" pr view "$value"
     expect_denied "run selector '$value'" run view "$value"
@@ -273,7 +269,7 @@ test_malformed_selectors_and_limits_are_denied() {
   expect_denied "an unknown state" pr list --state draft
   expect_denied "a merged issue state" issue list --state merged
   expect_denied "a free-form issue search" issue list --search 'is:open secret'
-  expect_denied "an unknown visibility" repo list --visibility everyone
+  expect_denied "repository listing has no repository selector" repo list
   expect_denied "an uppercase commit" run list --commit ABCDEF1
   expect_denied "a short commit" run list --commit abc
   expect_denied "an unknown run status" run list --status exploded
@@ -281,6 +277,21 @@ test_malformed_selectors_and_limits_are_denied() {
   expect_denied "a control byte in a label" pr list --label "$(printf 'a\tb')"
   expect_denied "an invalid login" pr list --author 'bad login'
   pass "malformed repositories, limits, selectors, fields, and enum values are denied"
+}
+
+test_every_shape_requires_a_repository() {
+  expect_denied "repo view without a repository" repo view
+  expect_denied "repository listing without a repository" repo list octocat
+  expect_denied "PR list without a repository" pr list
+  expect_denied "PR view without a repository" pr view 1
+  expect_denied "PR checks without a repository" pr checks 1
+  expect_denied "issue list without a repository" issue list
+  expect_denied "issue view without a repository" issue view 1
+  expect_denied "run list without a repository" run list
+  expect_denied "run view without a repository" run view 1
+  expect_denied "workflow list without a repository" workflow list
+  expect_denied "workflow view without a repository" workflow view ci.yml
+  pass "every accepted shape refuses ambient repository and host context"
 }
 
 test_writes_and_disclosure_are_denied() {
@@ -374,18 +385,12 @@ test_product_build_is_reproducible_and_verify_rejects_test_builds() {
 
 test_verify_gate_evidence() {
   local cmd="$TMP_ROOT/cmd-link" payload="$TMP_ROOT/product-a" out
-  printf '[{"launcher":"%s","reason":"Read Only for fm-gh-read"}]\n' "$cmd" >"$TMP_ROOT/h-ok.json"
-  printf '[{"launcher":"%s","reason":"Write Access"}]\n' "$cmd" >"$TMP_ROOT/h-write.json"
-  printf '[{"launcher":"/other","reason":"Read Only"}]\n' >"$TMP_ROOT/h-none.json"
-  out=$("$TOOL" verify --payload "$payload" --command "$cmd" --history "$TMP_ROOT/h-ok.json" 2>&1)
-  assert_contains "$out" "gate         ok" "a helper Read Only record must satisfy the gate check"
-  out=$("$TOOL" verify --payload "$payload" --command "$cmd" --history "$TMP_ROOT/h-write.json" 2>&1)
-  assert_contains "$out" "gate         FAIL" "a helper Write record must fail the gate check"
-  out=$("$TOOL" verify --payload "$payload" --command "$cmd" --history "$TMP_ROOT/h-none.json" 2>&1)
-  assert_contains "$out" "gate         FAIL" "history without a helper record must fail the gate check"
   out=$("$TOOL" verify --payload "$payload" --command "$cmd" 2>&1)
   assert_contains "$out" "command      FAIL" "a missing command link must fail"
-  pass "verify reads only operator-exported Gate evidence and demands a helper Read Only record"
+  assert_contains "$out" "gate         unverified" "Gate attribution must require manual App confirmation"
+  out=$("$TOOL" verify --payload "$payload" --history "$TMP_ROOT/untrusted.json" 2>&1)
+  assert_contains "$out" "unknown verify argument: --history" "unstructured history must not be accepted as Gate evidence"
+  pass "verify leaves Gate attribution for manual App confirmation"
 }
 
 test_plan_and_install_path_are_guarded() {
@@ -540,7 +545,7 @@ test_parser_runs_before_the_target() {
   assert_not_contains "$(cat "$TMP_ROOT/err")" "cannot start" "a denial must not attempt posix_spawn"
   [ ! -e "$missing" ] || fail "a denial must not create the target"
   [ ! -e "$LOG/argv" ] || fail "the missing target cannot have started"
-  "$helper" pr view 1 >"$TMP_ROOT/out" 2>"$TMP_ROOT/err"
+  "$helper" pr view 1 --repo o/r >"$TMP_ROOT/out" 2>"$TMP_ROOT/err"
   expect_code 70 "$?" "an allowed shape against a missing target fails at spawn"
   assert_contains "$(cat "$TMP_ROOT/err")" "cannot start" "an allowed shape must reach posix_spawn"
   pass "the parser denies before posix_spawn; only an allowed shape attempts the target"
@@ -588,6 +593,7 @@ test_invocation_name_does_not_change_policy
 test_mutations_at_every_position_are_denied
 test_equals_and_duplicate_forms_are_denied
 test_malformed_selectors_and_limits_are_denied
+test_every_shape_requires_a_repository
 test_writes_and_disclosure_are_denied
 test_product_build_is_reproducible_and_verify_rejects_test_builds
 test_verify_gate_evidence
