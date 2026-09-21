@@ -1,0 +1,3 @@
+usage:
+  fm-github-write.sh direct-pr <task-id> --title <title> --body-file <path>
+  fm-github-write.sh merge <task-id> <canonical-pr-url>

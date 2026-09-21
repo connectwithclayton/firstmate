@@ -1,0 +1,2 @@
+error: unknown direct-pr argument: --repo
+exit=1

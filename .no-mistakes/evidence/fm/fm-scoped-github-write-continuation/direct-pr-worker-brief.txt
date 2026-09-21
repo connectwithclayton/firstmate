@@ -1,0 +1,12 @@
+# Definition of done
+Delivery contract: mode=direct-PR
+This task ships **direct-PR**: you raise the PR yourself, without the no-mistakes pipeline.
+The task is complete only when committed on your branch.
+When it is implemented and committed, write the PR body to a regular file inside this worktree, then run `/Users/claytonjohnson/.no-mistakes/worktrees/dad68ef8e401/01M332386ZABVPDMH6R32P6KB0/bin/fm-github-write.sh direct-pr live-direct-pr --title "<title>" --body-file <path>` from the worktree root.
+That reviewed command derives and verifies the task, project, branch, remotes, base, and PR identity from Firstmate's records, pushes only `fm/live-direct-pr`, and creates or updates only its corresponding PR.
+Do not push with Git or invoke a forge write directly; keep Automic Vault approval attended, and report a missing Blessing instead of requesting broad Write Access or a Launcher Endorsement.
+Before you report done, read the exact URL printed by the command back from the forge and confirm it is not a draft (`gh pr view <url> --json isDraft` must print false).
+A draft cannot be merged, so a done report on one leaves the merge unasked.
+Append `done [at=<epoch>]: PR {url}` with that exact URL to the status file, then stop.
+If the PR remains a draft, append `paused [at=<epoch>]: {why the draft is held}` instead of done and report that the bounded delivery command cannot mark it ready.
+Do NOT run /no-mistakes. The configured merge authority decides whether to merge the PR; firstmate relays the outcome.
