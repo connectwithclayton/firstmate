@@ -1,0 +1,17 @@
+ok - all 16 allowed shapes reach the fake target byte for byte, as its parent, with a scrubbed environment
+ok - the target's exit status passes through unchanged
+ok - invoking the helper through a link named gh changes nothing
+ok - 2224 positional replacements and insertions are all denied before the target starts
+ok - 108 equals and duplicate forms, duplicate selectors, and label overflow are denied
+ok - malformed repositories, limits, selectors, fields, and enum values are denied
+ok - every accepted shape refuses ambient repository and host context
+ok - writes, disclosure, aliases, extensions, logs, downloads, and generic API forms are denied before the target
+ok - the product build is reproducible and verify rejects a fake-target build
+ok - verify leaves Gate attribution for manual App confirmation
+ok - plan changes nothing and install-path refuses unattended or redirected runs
+ok - the Cursor PATH directory is honored only when every hop is protected
+ok - the router isolates automatic reads from attended generic GitHub operations
+ok - the parser denies before posix_spawn; only an allowed shape attempts the target
+ok - only Cursor ship and scout launches prepend the helper directory; the pane shell and other harnesses are unchanged
+ok - Cursor secondmates do not prepend the helper directory
+ok - an unsafe helper directory refuses only the Cursor launch
