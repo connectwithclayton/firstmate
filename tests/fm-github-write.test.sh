@@ -40,7 +40,8 @@ EOF
 }
 
 add_tools() {
-  local case_dir=$1 fakebin="$case_dir/fakebin"
+  local case_dir=$1
+  local fakebin="$case_dir/fakebin"
   mkdir -p "$fakebin"
   cat > "$fakebin/git" <<'SH'
 #!/usr/bin/env bash

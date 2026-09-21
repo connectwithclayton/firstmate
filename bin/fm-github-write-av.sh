@@ -1,4 +1,5 @@
 #!/usr/local/bin/av inject -- /bin/bash
+# shellcheck shell=bash disable=SC2096
 # --- automic-vault
 # capabilities:
 #   gh: write
