@@ -16,7 +16,7 @@ set -eu
 
 SELF=${AV_SCRIPT_PATH:-${BASH_SOURCE[0]}}
 SCRIPT_DIR="$(cd "$(dirname "$SELF")" && pwd -P)"
-EXPECTED_WRITE_SHA256='f86b4d249e6ec51e65dfe8dc6a33cccdff83c7351c9ecf407d9bd3a1f132f200'
+EXPECTED_WRITE_SHA256='b51ad77a202d72a4c2efd89cdbf4a01cb936b4bb451be932231d9b86c277fa8f'
 
 sha256_file() {
   if [ -x /usr/bin/shasum ]; then
@@ -40,6 +40,12 @@ fi
 # GitHub SSH URL; the existing merge implementation retains its own guards.
 PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin
 export PATH
+FM_GITHUB_WRITE_GH_AXI_BIN=$(command -v gh-axi 2>/dev/null || true)
+[ -n "$FM_GITHUB_WRITE_GH_AXI_BIN" ] || {
+  echo 'error: direct GitHub delivery requires gh-axi on the fixed Blessed Script PATH' >&2
+  exit 1
+}
+export FM_GITHUB_WRITE_GH_AXI_BIN
 FM_GITHUB_WRITE_ACTIVE=1
 export FM_GITHUB_WRITE_ACTIVE
 exec "$SCRIPT_DIR/fm-github-write.sh" "$@"

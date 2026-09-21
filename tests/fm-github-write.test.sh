@@ -94,6 +94,23 @@ run_write() {
   )
 }
 
+run_shared_write() {
+  local home=$1 wt=$2; shift 2
+  local case_dir=${home%/home}
+  (
+    cd "$wt" || exit 1
+    FM_HOME="$home" \
+    FM_ROOT_OVERRIDE="$ROOT" \
+    FM_GITHUB_WRITE_ACTIVE=1 \
+    FM_TEST_REAL_GIT="$REAL_GIT" \
+    FM_TEST_GIT_LOG="$case_dir/git.log" \
+    FM_TEST_GH_LOG="$case_dir/gh.log" \
+    FM_TEST_EXISTING_PR="$case_dir/existing-pr" \
+    PATH="$case_dir/fakebin:$PATH" \
+      "$ROOT/bin/fm-github-write.sh" "$@"
+  )
+}
+
 assert_no_write_calls() {
   local case_dir=$1
   [ ! -s "$case_dir/git.log" ] || fail "refused case attempted a git push"
@@ -138,6 +155,21 @@ EOF
     "direct-PR did not update the one matching PR"
   assert_no_grep 'pr create' "$case_dir/gh.log" "direct-PR created a duplicate PR"
   pass "bounded direct-PR updates only the canonical open PR for its exact branch"
+}
+
+test_direct_pr_uses_isolated_home_with_shared_code() {
+  local rec home project wt id case_dir out
+  rec=$(make_case isolated-home)
+  IFS='|' read -r home project wt id <<EOF
+$rec
+EOF
+  case_dir=${home%/home}
+  add_tools "$case_dir"
+  out=$(run_shared_write "$home" "$wt" direct-pr "$id" --title 'Isolated home' --body-file "$wt/pr-body.md") \
+    || fail "shared direct-PR entry point ignored the isolated Firstmate home"
+  assert_contains "$out" "https://github.com/base-owner/sample/pull/41" \
+    "shared direct-PR entry point did not publish from isolated-home task metadata"
+  pass "shared direct-PR code resolves task metadata from the selected isolated home"
 }
 
 test_direct_pr_refusals_precede_writes() {
@@ -294,6 +326,7 @@ SH
 
 test_direct_pr_derives_identity_and_creates_pr
 test_direct_pr_updates_only_matching_pr
+test_direct_pr_uses_isolated_home_with_shared_code
 test_direct_pr_refusals_precede_writes
 test_merge_requires_yolo_and_bound_guard_script
 test_automic_selection_and_wrapper_content_binding

@@ -37,12 +37,12 @@
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-FM_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
-FM_HOME=$FM_ROOT
+FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd -P)}"
+FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 STATE="$FM_HOME/state"
 AV_BIN=${FM_AUTOMIC_VAULT_BIN:-/usr/local/bin/av}
 GH_AXI_BIN=${FM_GITHUB_WRITE_GH_AXI_BIN:-gh-axi}
-EXPECTED_PR_MERGE_SHA256='967fa2c91a6b24ab244ef06e5a8fa5daf9b65815628d2701d6eca6ecc1832b49'
+EXPECTED_PR_MERGE_SHA256='4d46491db94abeaaf21b4b16caaa76d74ff4c48e5c6cc60de92eb41485417d3f'
 
 usage() {
   cat <<'EOF'
