@@ -257,7 +257,7 @@ This task ships **direct-PR**: you raise the PR yourself, without the no-mistake
 The task is complete only when committed on your branch.
 When it is implemented and committed, write the PR body to a regular file inside this worktree, then run \`$github_write direct-pr $id --title "<title>" --body-file <path>\` from the worktree root.
 That reviewed command derives and verifies the task, project, branch, remotes, base, and PR identity from Firstmate's records, pushes only \`fm/$id\`, and creates or updates only its corresponding PR.
-Do not push with Git or invoke a forge write directly; if Automic Vault reports a missing Blessing or Launcher Endorsement, report that operator prerequisite instead of requesting broad Write Access.
+Do not push with Git or invoke a forge write directly; keep Automic Vault approval attended, and report a missing Blessing instead of requesting broad Write Access or a Launcher Endorsement.
 Before you report done, read the exact URL printed by the command back from the forge and confirm it is not a draft (\`gh pr view <url> --json isDraft\` must print false).
 A draft cannot be merged, so a done report on one leaves the merge unasked.
 Append \`done [at=<epoch>]: PR {url}\` with that exact URL to the status file, then stop.

@@ -26,8 +26,8 @@
 # adjacent fm-github-write-av.sh Blessed Script unless that script set the
 # private FM_GITHUB_WRITE_ACTIVE marker. The Blessed Script grants only the gh
 # Write and SSH authentication capabilities this reviewed operation needs.
-# Direct execution without a valid Blessing or Launcher Endorsement receives no
-# automic authority and falls back to Automic Vault's ordinary Approval policy.
+# Worker and firstmate launchers remain unendorsed, so each invocation uses
+# Automic Vault's attended Approval policy.
 # On hosts without Automic Vault, this script preserves the same validation but
 # uses the host's existing GitHub and SSH authentication.
 #

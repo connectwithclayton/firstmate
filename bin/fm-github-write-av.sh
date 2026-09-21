@@ -6,17 +6,17 @@
 # ---
 # Automic Vault Blessed Script for bin/fm-github-write.sh.
 #
-# Bless this exact canonical file and add a Launcher Endorsement for each
-# verified worker or firstmate launcher that may perform reviewed delivery
-# writes. Automic Vault binds this file's path, contents, declaration, and
-# capabilities to that review. This wrapper additionally binds the executable
-# delivery implementation below, so changing either the implementation or this
-# declaration requires a digest update and a fresh Blessing review.
+# Bless this exact canonical file without endorsing any worker or firstmate
+# launcher. Automic Vault binds this file's path, contents, declaration, and
+# capabilities to that review while keeping each invocation attended. This
+# wrapper additionally binds the executable delivery implementation below, so
+# changing either the implementation or this declaration requires a digest
+# update and a fresh Blessing review.
 set -eu
 
 SELF=${AV_SCRIPT_PATH:-${BASH_SOURCE[0]}}
 SCRIPT_DIR="$(cd "$(dirname "$SELF")" && pwd -P)"
-EXPECTED_WRITE_SHA256='b51ad77a202d72a4c2efd89cdbf4a01cb936b4bb451be932231d9b86c277fa8f'
+EXPECTED_WRITE_SHA256='cd57494124eb0871f24ca997e3c8e01f774c1cfbe38dfb0919ad2a6fbb4f71c2'
 
 sha256_file() {
   if [ -x /usr/bin/shasum ]; then
