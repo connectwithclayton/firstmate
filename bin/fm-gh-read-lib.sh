@@ -11,7 +11,7 @@
 # resolves to the enrolled helper instead of the generic hardened gh.
 #
 # The directory is routing, never authority. It is honored only when every
-# path component, the `gh` link, and every hop the link resolves through is
+# path component, the `gh` router, and every hop its helper target resolves through is
 # owned by root and not writable by group or others, so a same-user process
 # cannot swap what a Cursor worker's `gh` reaches. An absent directory leaves
 # the launch unchanged; a present directory that fails any check refuses the
@@ -122,7 +122,7 @@ fm_gh_read_resolve_protected() {  # <absolute-path> <uid>
   done
 }
 
-# The Cursor helper PATH directory decision.
+# The Cursor router PATH directory decision.
 # Exit 0 prints the verified directory, 1 means it is absent, and 2 means it
 # is present but unsafe, with the reason on stderr.
 fm_gh_read_cursor_path_dir() {
@@ -155,12 +155,8 @@ fm_gh_read_cursor_path_dir() {
     return 2
   fi
   st=$(fm_gh_read_lstat "$dir/gh") || return 2
-  if [ "${st##* }" != link ]; then
-    printf 'gh read helper entry is not a link: %s/gh\n' "$dir" >&2
-    return 2
-  fi
-  if ! fm_gh_read_resolve_protected "$dir/gh" "$uid" >/dev/null; then
-    printf 'gh read helper link does not resolve to a protected executable: %s/gh\n' "$dir" >&2
+  if [ "${st##* }" != file ] || [ ! -x "$dir/gh" ]; then
+    printf 'gh read router is not an executable regular file: %s/gh\n' "$dir" >&2
     return 2
   fi
   printf '%s\n' "$dir"

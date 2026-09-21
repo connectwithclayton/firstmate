@@ -15,6 +15,8 @@
 #
 # Usage:
 #   fm-gh-read.sh build --out <path> [--fake-target <absolute-path>]
+#   fm-gh-read.sh build-router --out <path> [--helper-target <absolute-path>]
+#                              [--generic-target <absolute-path>]
 #   fm-gh-read.sh plan [--command <path>]
 #   fm-gh-read.sh verify --payload <path> [--command <path>]
 #                        [--signed-sha256 <hex>]
@@ -48,14 +50,14 @@
 #   target         /usr/local/bin/gh is a root-owned entry that resolves to
 #                  an executable validly signed with Hardened Runtime by the
 #                  Automic Vault gh Isotope's Team ID.
-#   cursor-path    the protected Cursor PATH directory holds exactly `gh`,
-#                  linked to --command, through protected hops.
+#   cursor-path    the protected Cursor PATH directory holds exactly the
+#                  native `gh` router built for --command and generic gh.
 #   gate           remains unverified because Authorization History has no
 #                  published machine-readable schema. The operator confirms
 #                  launcher identity and Read Only authorization in the App.
 #
 # install-path is the only mutating command. It creates the protected Cursor
-# PATH directory and its `gh` link to --command through sudo, and only after
+# PATH directory and its native `gh` router through sudo, and only after
 # the operator types `install` at an interactive terminal. It refuses a
 # non-interactive run, a command that is not already a protected executable,
 # and a directory that already holds anything else. Launcher Bundle
@@ -114,6 +116,29 @@ build_payload() {  # <out> [fake-target]
   return "$status"
 }
 
+valid_compiled_path() {
+  case "$1" in /*) ;; *) return 1 ;; esac
+  case "$1" in *'"'* | *\\*) return 1 ;; esac
+}
+
+build_router() {  # <out> <helper-target> <generic-target>
+  local out=$1 helper=$2 generic=$3 work status
+  command -v cc >/dev/null 2>&1 || die "no C compiler (cc) is available"
+  valid_compiled_path "$helper" || die "router helper target must be a safe absolute path"
+  valid_compiled_path "$generic" || die "router generic target must be a safe absolute path"
+  work=$(mktemp -d "${TMPDIR:-/tmp}/fm-gh-read-router.XXXXXX") || die "cannot create a build directory"
+  (cd "$work" && cc "${CFLAGS[@]}" -DFM_GH_READ_ROUTER \
+    "-DFM_GH_READ_HELPER_TARGET=\"$helper\"" "-DFM_GH_READ_TARGET=\"$generic\"" \
+    -o fm-gh-read-route "$SOURCE")
+  status=$?
+  if [ "$status" -eq 0 ]; then
+    cp -f -- "$work/fm-gh-read-route" "$out" && chmod 0755 "$out"
+    status=$?
+  fi
+  rm -rf -- "$work"
+  return "$status"
+}
+
 cmd_build() {
   local out='' fake='' digest
   while [ $# -gt 0 ]; do
@@ -128,6 +153,22 @@ cmd_build() {
   digest=$(sha256_of "$out") || die "cannot hash $out"
   printf 'sha256=%s\npath=%s\n' "$digest" "$out"
   [ -z "$fake" ] || printf 'test-build: target=%s (never enroll this build)\n' "$fake"
+}
+
+cmd_build_router() {
+  local out='' helper=$DEFAULT_COMMAND generic=$PRODUCT_TARGET digest
+  while [ $# -gt 0 ]; do
+    case "$1" in
+    --out) [ $# -ge 2 ] || die "--out needs a path" 2; out=$2; shift 2 ;;
+    --helper-target) [ $# -ge 2 ] || die "--helper-target needs a path" 2; helper=$2; shift 2 ;;
+    --generic-target) [ $# -ge 2 ] || die "--generic-target needs a path" 2; generic=$2; shift 2 ;;
+    *) die "unknown build-router argument: $1" 2 ;;
+    esac
+  done
+  [ -n "$out" ] || die "build-router needs --out <path>" 2
+  build_router "$out" "$helper" "$generic" || die "router build failed"
+  digest=$(sha256_of "$out") || die "cannot hash $out"
+  printf 'sha256=%s\npath=%s\n' "$digest" "$out"
 }
 
 # Follow every symlink hop of <path> and print the final executable file.
@@ -202,7 +243,7 @@ EOF
 
 cmd_verify() {
   local payload='' command=$DEFAULT_COMMAND signed='' work built_digest payload_digest
-  local resolved='' sig ents bad actual dir link_target
+  local resolved='' sig ents bad actual dir router_digest expected_digest
   while [ $# -gt 0 ]; do
     case "$1" in
     --payload) [ $# -ge 2 ] || die "--payload needs a path" 2; payload=$2; shift 2 ;;
@@ -287,11 +328,19 @@ cmd_verify() {
   fi
 
   if dir=$(fm_gh_read_cursor_path_dir 2>/dev/null); then
-    link_target=$(readlink -- "$dir/gh")
-    if [ "$link_target" = "$command" ]; then
-      report cursor-path ok "$dir/gh -> $command"
+    work=$(mktemp -d "${TMPDIR:-/tmp}/fm-gh-read-router-verify.XXXXXX") || die "cannot create a scratch directory"
+    if build_router "$work/gh" "$command" "$PRODUCT_TARGET" 2>/dev/null; then
+      router_digest=$(sha256_of "$dir/gh")
+      expected_digest=$(sha256_of "$work/gh")
     else
-      report cursor-path FAIL "$dir/gh -> $link_target, expected $command"
+      router_digest=''
+      expected_digest='build-failed'
+    fi
+    rm -rf -- "$work"
+    if [ "$router_digest" = "$expected_digest" ]; then
+      report cursor-path ok "$dir/gh routes closed reads to $command"
+    else
+      report cursor-path FAIL "$dir/gh does not match a fresh router for $command"
     fi
   else
     report cursor-path FAIL "$(cursor_path_state)"
@@ -303,7 +352,7 @@ cmd_verify() {
 }
 
 cmd_install_path() {
-  local command='' dir=$FM_GH_READ_CURSOR_DIR_DEFAULT answer status
+  local command='' dir=$FM_GH_READ_CURSOR_DIR_DEFAULT answer status work
   while [ $# -gt 0 ]; do
     case "$1" in
     --command) [ $# -ge 2 ] || die "--command needs a path" 2; command=$2; shift 2 ;;
@@ -319,23 +368,34 @@ cmd_install_path() {
   fm_gh_read_cursor_path_dir >/dev/null 2>&1
   status=$?
   [ "$status" -eq 1 ] || die "$dir already exists; inspect it by hand before replacing anything"
-  printf 'This creates %s (root:wheel, 0755) with one link:\n  %s/gh -> %s\n' "$dir" "$dir" "$command"
-  printf 'Every Cursor ship and scout launch will then resolve gh to the helper.\n'
+  work=$(mktemp -d "${TMPDIR:-/tmp}/fm-gh-read-install.XXXXXX") || die "cannot create a build directory"
+  build_router "$work/gh" "$command" "$PRODUCT_TARGET" || {
+    rm -rf -- "$work"
+    die "router build failed"
+  }
+  printf 'This creates %s (root:wheel, 0755) with a native gh router.\n' "$dir"
+  printf 'Accepted closed reads route to %s; every other form routes to %s.\n' "$command" "$PRODUCT_TARGET"
   printf 'Type install to continue: '
   IFS= read -r answer || answer=''
-  [ "$answer" = install ] || die "not confirmed; nothing changed"
+  [ "$answer" = install ] || {
+    rm -rf -- "$work"
+    die "not confirmed; nothing changed"
+  }
   if ! { sudo /bin/mkdir -p -m 0755 "$dir" &&
     sudo /usr/sbin/chown root:wheel "$dir" "$(dirname -- "$dir")" &&
     sudo /bin/chmod 0755 "$dir" "$(dirname -- "$dir")" &&
-    sudo /bin/ln -s "$command" "$dir/gh"; }; then
+    sudo /usr/bin/install -o root -g wheel -m 0755 "$work/gh" "$dir/gh"; }; then
+    rm -rf -- "$work"
     die "installation failed; inspect $dir"
   fi
+  rm -rf -- "$work"
   fm_gh_read_cursor_path_dir >/dev/null || die "the installed directory did not pass its own check; inspect $dir"
-  printf 'installed: %s/gh -> %s\n' "$dir" "$command"
+  printf 'installed: %s/gh\n' "$dir"
 }
 
 case "${1:-}" in
 build) shift; cmd_build "$@" ;;
+build-router) shift; cmd_build_router "$@" ;;
 plan) shift; cmd_plan "$@" ;;
 verify) shift; cmd_verify "$@" ;;
 install-path) shift; cmd_install_path "$@" ;;

@@ -41,6 +41,10 @@
 #define FM_GH_READ_TARGET "/usr/local/bin/gh"
 #endif
 
+#ifndef FM_GH_READ_HELPER_TARGET
+#define FM_GH_READ_HELPER_TARGET "/usr/local/bin/fm-gh-read"
+#endif
+
 #define EXIT_DENIED 64
 #define EXIT_INTERNAL 70
 #define MAX_ARGS 64
@@ -88,6 +92,18 @@ struct shape {
   enum value_kind positional_kind;
   struct option_spec options[MAX_OPTIONS];
 };
+
+#ifdef FM_GH_READ_ROUTER
+static char **route_argv;
+
+static _Noreturn void route_to(const char *target) {
+  route_argv[0] = "gh";
+  execv(target, route_argv);
+  fprintf(stderr, "fm-gh-read-route: cannot start %s: %s\n", target,
+          strerror(errno));
+  exit(EXIT_INTERNAL);
+}
+#endif
 
 static const struct shape SHAPES[] = {
     {"repo", "view", POS_REQUIRED, V_REPO, {{"--json", V_FIELDS, 1}}},
@@ -167,6 +183,11 @@ static const struct shape SHAPES[] = {
 };
 
 static void deny(const char *reason, const char *arg) {
+#ifdef FM_GH_READ_ROUTER
+  (void)reason;
+  (void)arg;
+  route_to(FM_GH_READ_TARGET);
+#else
   if (arg != NULL) {
     fprintf(stderr, "fm-gh-read: denied: %s: %.80s\n", reason, arg);
   } else {
@@ -176,6 +197,7 @@ static void deny(const char *reason, const char *arg) {
           "fm-gh-read: only closed read-only repo, pr, issue, run, and "
           "workflow shapes are accepted; see docs/gh-read-helper.md\n");
   exit(EXIT_DENIED);
+#endif
 }
 
 static int is_alnum(char c) {
@@ -499,7 +521,14 @@ int main(int argc, char **argv) {
   short flags = POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF;
   struct sigaction sa;
 
+#ifdef FM_GH_READ_ROUTER
+  route_argv = argv;
+#endif
   validate(argc, argv);
+
+#ifdef FM_GH_READ_ROUTER
+  route_to(FM_GH_READ_HELPER_TARGET);
+#endif
 
   if (target[0] != '/') {
     fprintf(stderr, "fm-gh-read: build error: target is not absolute\n");

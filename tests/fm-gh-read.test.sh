@@ -16,7 +16,9 @@
 #   3. Writes, disclosure, aliases, extensions, downloads, logs, generic REST,
 #      and GraphQL are denied before the target runs.
 #   4. The product build is reproducible, and verify rejects a test build.
-#   5. Only a Cursor ship or scout launch gains the protected PATH directory;
+#   5. The native router sends only accepted reads to the helper and preserves
+#      generic attended GitHub operations.
+#   6. Only a Cursor ship or scout launch gains the protected PATH directory;
 #      other harnesses, Cursor secondmates, and the pane shell are unchanged,
 #      and an unsafe directory refuses the Cursor launch.
 set -u
@@ -31,6 +33,8 @@ TMP_ROOT=$(fm_test_tmproot fm-gh-read)
 LOG="$TMP_ROOT/target-log"
 FAKE_TARGET="$TMP_ROOT/fake-gh"
 HELPER="$TMP_ROOT/fm-gh-read"
+ROUTER="$TMP_ROOT/fm-gh-read-route"
+GENERIC_TARGET="$TMP_ROOT/generic-gh"
 mkdir -p "$LOG"
 
 command -v cc >/dev/null 2>&1 || fail "a C compiler (cc) is required to build the helper under test"
@@ -74,6 +78,13 @@ EOF
 cc -o "$FAKE_TARGET" "$TMP_ROOT/fake-gh.c" || fail "could not build the fake target"
 "$TOOL" build --out "$HELPER" --fake-target "$FAKE_TARGET" >"$TMP_ROOT/build.out" ||
   fail "the helper did not build: $(cat "$TMP_ROOT/build.out")"
+cat >"$GENERIC_TARGET" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$@" >"$FM_TEST_GENERIC_LOG"
+SH
+chmod +x "$GENERIC_TARGET"
+"$TOOL" build-router --out "$ROUTER" --helper-target "$HELPER" \
+  --generic-target "$GENERIC_TARGET" >/dev/null || fail "the native router did not build"
 # The enrolled payload has Hardened Runtime, which ignores caller DYLD_* .
 # The test build is unsigned, so without this the hostile caller environment
 # would abort the helper itself before policy runs.
@@ -415,9 +426,8 @@ make_cursor_dir() {  # <name> -> echoes dir
   local dir="$TMP_ROOT/cursor/$1"
   mkdir -p "$dir" "$TMP_ROOT/cursor/cmd"
   chmod 0755 "$TMP_ROOT/cursor" "$dir" "$TMP_ROOT/cursor/cmd"
-  cp "$HELPER" "$TMP_ROOT/cursor/cmd/fm-gh-read"
-  chmod 0755 "$TMP_ROOT/cursor/cmd/fm-gh-read"
-  ln -sf "$TMP_ROOT/cursor/cmd/fm-gh-read" "$dir/gh"
+  cp "$ROUTER" "$dir/gh"
+  chmod 0755 "$dir/gh"
   printf '%s\n' "$dir"
 }
 
@@ -440,31 +450,42 @@ test_cursor_path_dir_checks() {
   FM_GH_READ_CURSOR_DIR_OVERRIDE="$dir" fm_gh_read_cursor_path_dir >/dev/null 2>&1
   expect_code 2 "$?" "a directory with a second entry"
 
-  dir=$(make_cursor_dir plain-file)
-  rm -f "$dir/gh"
-  cp "$HELPER" "$dir/gh"
-  FM_GH_READ_CURSOR_DIR_OVERRIDE="$dir" fm_gh_read_cursor_path_dir >/dev/null 2>&1
-  expect_code 2 "$?" "a gh that is a plain file rather than a link"
-
-  dir=$(make_cursor_dir writable-hop)
-  mkdir -p "$TMP_ROOT/cursor/open"
-  chmod 0777 "$TMP_ROOT/cursor/open"
-  cp "$HELPER" "$TMP_ROOT/cursor/open/fm-gh-read"
-  ln -sf "$TMP_ROOT/cursor/open/fm-gh-read" "$dir/gh"
-  FM_GH_READ_CURSOR_DIR_OVERRIDE="$dir" fm_gh_read_cursor_path_dir >/dev/null 2>&1
-  expect_code 2 "$?" "a link through a world-writable directory"
-
   dir=$(make_cursor_dir not-executable)
-  cp "$HELPER" "$TMP_ROOT/cursor/cmd/plain"
-  chmod 0644 "$TMP_ROOT/cursor/cmd/plain"
-  ln -sf "$TMP_ROOT/cursor/cmd/plain" "$dir/gh"
+  chmod 0644 "$dir/gh"
   FM_GH_READ_CURSOR_DIR_OVERRIDE="$dir" fm_gh_read_cursor_path_dir >/dev/null 2>&1
-  expect_code 2 "$?" "a link to a non-executable file"
+  expect_code 2 "$?" "a non-executable router"
 
   ln -s "$TMP_ROOT/cursor/good" "$TMP_ROOT/cursor/dir-link"
   FM_GH_READ_CURSOR_DIR_OVERRIDE="$TMP_ROOT/cursor/dir-link" fm_gh_read_cursor_path_dir >/dev/null 2>&1
   expect_code 2 "$?" "a directory that is itself a link"
   pass "the Cursor PATH directory is honored only when every hop is protected"
+}
+
+test_router_preserves_attended_generic_path() {
+  local generic_log="$TMP_ROOT/generic.log"
+  rm -f "$generic_log" "$LOG/argv"
+  FM_TEST_GENERIC_LOG="$generic_log" "$ROUTER" pr view 42 --repo o/r >/dev/null
+  assert_equals $'pr\nview\n42\n--repo\no/r' "$(cat "$LOG/argv")" \
+    "an accepted closed read must reach the enrolled helper"
+  [ ! -e "$generic_log" ] || fail "an accepted closed read reached generic gh"
+
+  rm -f "$generic_log" "$LOG/argv"
+  FM_TEST_GENERIC_LOG="$generic_log" "$ROUTER" pr create --title x >/dev/null
+  assert_equals $'pr\ncreate\n--title\nx' "$(cat "$generic_log")" \
+    "a direct-PR write must use generic attended gh"
+  [ ! -e "$LOG/argv" ] || fail "a write reached the enrolled helper"
+
+  rm -f "$generic_log" "$LOG/argv"
+  FM_TEST_GENERIC_LOG="$generic_log" "$ROUTER" pr view https://github.com/o/r/pull/42 --json isDraft >/dev/null
+  assert_equals $'pr\nview\nhttps://github.com/o/r/pull/42\n--json\nisDraft' "$(cat "$generic_log")" \
+    "an instructed URL-selector read must use generic attended gh"
+  [ ! -e "$LOG/argv" ] || fail "a URL-selector form reached the enrolled helper"
+
+  rm -f "$generic_log" "$LOG/argv"
+  FM_TEST_GENERIC_LOG="$generic_log" "$ROUTER" api graphql -f query=x >/dev/null
+  [ ! -e "$LOG/argv" ] || fail "a helper-denied API form gained automatic authority"
+  assert_grep 'api' "$generic_log" "a helper-denied form must remain on generic attended gh"
+  pass "the router isolates automatic reads from attended generic GitHub operations"
 }
 
 # --- spawn routing -----------------------------------------------------------
@@ -599,6 +620,7 @@ test_product_build_is_reproducible_and_verify_rejects_test_builds
 test_verify_gate_evidence
 test_plan_and_install_path_are_guarded
 test_cursor_path_dir_checks
+test_router_preserves_attended_generic_path
 test_parser_runs_before_the_target
 test_spawn_routes_only_cursor_workers
 test_spawn_does_not_route_cursor_secondmates
