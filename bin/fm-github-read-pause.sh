@@ -4,7 +4,6 @@
 #
 # Usage:
 #   fm-github-read-pause.sh pause
-#   fm-github-read-pause.sh status
 #
 # pause atomically publishes state/.github-read-pause before retiring the
 # contribution observer and every registered GitHub merge-poll check through
@@ -14,10 +13,6 @@
 # fm-pr-check.sh serialize on the same marker lock, so none can re-arm a reader
 # across this operation. Any malformed marker remains a pause and is reported
 # for repair rather than interpreted as permission to read GitHub.
-#
-# status is read-only. Releasing the credential-safety pause is intentionally
-# not implicit in this command: after credentials are safe, remove it only
-# through a separately reviewed resumption path that re-arms the retained PRs.
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -41,17 +36,6 @@ MARKER=$(fm_github_read_pause_marker "$STATE")
 LOCK="$STATE/.github-read-pause.lock"
 
 case "$MODE" in
-  status)
-    if ! fm_github_read_pause_active "$STATE"; then
-      printf 'not-paused\n'
-    elif fm_github_read_pause_valid "$STATE"; then
-      printf 'paused\n'
-    else
-      printf 'paused-invalid: repair %s before resumption\n' "$MARKER"
-      exit 1
-    fi
-    exit 0
-    ;;
   pause) ;;
   -h|--help) usage; exit 0 ;;
   *) usage >&2; exit 2 ;;
