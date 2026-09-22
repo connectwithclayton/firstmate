@@ -1,0 +1,34 @@
+LIVE SCENARIO: active durable pause, GitHub CLI absent from PATH
+gh available: no
+ACTION: register PR while pause is active
+recorded: state/delivery.pr-poll (GitHub reads paused)
+STATE AFTER REGISTRATION:
+absent  delivery.check.sh
+absent  contributions.check.sh
+absent  contributions.check-trust
+present delivery.pr-poll
+present delivery.pr-poll-registration
+present delivery.meta
+present .github-read-pause
+ACTION: run local startup while pause is active
+MISSING: tmux (install: brew install tmux  # or the platform's package manager)
+MISSING: treehouse (install: curl -fsSL https://kunchenguid.github.io/treehouse/install.sh | sh)
+MISSING: node (install: brew install node  # or the platform's package manager)
+MISSING: gh (install: brew install gh  # or the platform's package manager)
+MISSING: no-mistakes (install: curl -fsSL https://raw.githubusercontent.com/kunchenguid/no-mistakes/main/docs/install.sh | sh)
+MISSING: gh-axi (install: npm install -g gh-axi && gh-axi setup hooks)
+MISSING: chrome-devtools-axi (install: npm install -g chrome-devtools-axi && chrome-devtools-axi setup hooks)
+MISSING: tasks-axi (install: npm install -g tasks-axi)
+MISSING: quota-axi (install: npm install -g quota-axi)
+PRESENTATION_UNAVAILABLE: lavish-axi (requires >=0.1.46; install: npm install -g lavish-axi && lavish-axi setup hooks) - nonvisual work may proceed with plain-text decisions and reports; install or upgrade before using Lavish
+STATE AFTER STARTUP:
+absent  delivery.check.sh
+absent  contributions.check.sh
+absent  contributions.check-trust
+present delivery.pr-poll
+present delivery.pr-poll-registration
+present delivery.meta
+present .github-read-pause
+PR poll preserved byte-for-byte: yes
+PR registration preserved byte-for-byte: yes
+metadata: worktree=/var/folders/nz/2_wts0tj2_s7x1flcwlpvvdh0000gn/T//fm-pause-live.MDi13k/home/wt kind=ship pr=https://github.com/o/r/pull/8 pr_head=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 
