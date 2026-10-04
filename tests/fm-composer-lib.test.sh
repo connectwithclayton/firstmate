@@ -455,7 +455,7 @@ test_matrix_herdr_cursor_requires_complete_halfblock_envelope() {
   assert_screen "stale complete Herdr Cursor envelope" unknown "$CAPS_HERDR_CURSOR" \
     "$stale" '' $'cursor\tblocked'
 
-  lower=$'turn_ended/error\n  → history prompt\n ▄▄▄▄▄▄▄▄\n  → Add a follow-up\n ▀▀▀▀▀▀▀▀\n'"$footer"
+  lower=$'turn_ended/error\n  → history prompt\n ▄▄▄▄▄▄▄▄\n  \033[2m→ \033[0;7mA\033[0;2mdd a follow-up\033[0m\n ▀▀▀▀▀▀▀▀\n'"$footer"
   assert_screen "Herdr Cursor history above lower live composer" empty "$CAPS_HERDR_CURSOR" \
     "$lower" '' $'cursor\tblocked'
 
@@ -1072,6 +1072,7 @@ test_matrix_codex_dim_hint_row
 test_matrix_muse_truecolor_glyph_survives_signal_loss
 test_matrix_cursor_reverse_video_placeholder_remnant
 test_matrix_herdr_halfblock_rule_bounds_bare_wrap
+test_matrix_herdr_cursor_requires_complete_halfblock_envelope
 test_matrix_omp_status_row_bounds_bare_composer
 test_matrix_codex_idle_starfield_furniture
 test_matrix_pi_separated_needs_identity
