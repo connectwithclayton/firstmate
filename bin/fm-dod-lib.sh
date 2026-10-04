@@ -472,8 +472,15 @@ fm_dod_ref_contains() {  # <repo> <ref-namespace> <sha>
 # green`, with any surrounding text). bin/fm-crew-state.sh takes its CI-ready
 # path on this same test, so every CI-ready line it acts on is gated.
 fm_dod_note_reports_ci_ready() {  # <note>
+  local url
   case "$1" in
-    *PR*"checks green"*|*"checks green"*PR*) return 0 ;;
+    *"checks green"*) ;;
+    *) return 1 ;;
+  esac
+  url=$(fm_dod_pr_url_from_done_note "$1") || return 1
+  fm_pr_url_parse "$url" || return 1
+  case "$FM_PR_PROVIDER" in
+    github|gitlab) return 0 ;;
   esac
   return 1
 }

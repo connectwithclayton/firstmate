@@ -39,7 +39,7 @@ test_unpushed_ship_done_is_refused() {
   fm_git_worktree "$repo" "$wt" fm/unpushed
   git -C "$wt" commit -q --allow-empty -m 'fix only in the worktree'
   sha=$(git -C "$wt" rev-parse HEAD)
-  reason=$(accept_done ship no-mistakes "$wt" "$repo" "done: PR https://example.test/o/r/pull/1 checks green")
+  reason=$(accept_done ship no-mistakes "$wt" "$repo" "done: PR https://github.com/o/r/pull/1 checks green")
   rc=$?
   [ "$rc" -eq 1 ] || fail "unpushed ship done: was accepted (exit $rc)"
   case "$reason" in
@@ -57,7 +57,7 @@ test_remote_containing_named_head_is_accepted() {
   git -C "$wt" commit -q --allow-empty -m 'fix on the branch'
   sha=$(git -C "$wt" rev-parse HEAD)
   git -C "$wt" update-ref refs/remotes/origin/fm/pushed "$sha"
-  accept_done ship no-mistakes "$wt" "$repo" "done: PR https://example.test/o/r/pull/2 checks green" \
+  accept_done ship no-mistakes "$wt" "$repo" "done: PR https://github.com/o/r/pull/2 checks green" \
     || fail "named head on a remote-tracking ref was refused"
   pass "named head on a remote-tracking ref is accepted"
 }
@@ -73,7 +73,7 @@ test_moved_branch_without_named_head_is_refused() {
   # The fork branch exists and moved, but only to a merge of the default
   # branch: reachability of that branch is not reachability of the named head.
   git -C "$wt" update-ref refs/remotes/origin/fm/moved "$main_sha"
-  reason=$(accept_done ship no-mistakes "$wt" "$repo" "done: PR https://example.test/o/r/pull/3 checks green")
+  reason=$(accept_done ship no-mistakes "$wt" "$repo" "done: PR https://github.com/o/r/pull/3 checks green")
   rc=$?
   [ "$rc" -eq 1 ] || fail "moved remote branch without the named head was accepted"
   case "$reason" in
@@ -101,6 +101,33 @@ test_no_mistakes_prevalidation_done_is_refused() {
     esac
   done
   pass "no-mistakes pre-validation done: is refused even when its head is reachable"
+}
+
+test_no_mistakes_checks_green_requires_canonical_pr_url() {
+  local repo wt sha mode line reason rc
+  repo="$TMP_ROOT/canonical-pr-repo"
+  wt="$TMP_ROOT/canonical-pr-wt"
+  fm_git_worktree "$repo" "$wt" fm/canonical-pr
+  git -C "$wt" commit -q --allow-empty -m 'reachable implementation'
+  sha=$(git -C "$wt" rev-parse HEAD)
+  git -C "$wt" update-ref refs/remotes/origin/fm/canonical-pr "$sha"
+  for mode in no-mistakes ''; do
+    for line in \
+      'done: implementation complete; PR validation runs until checks green' \
+      'done: PR https://example.test/o/r/pull/7 checks green'; do
+      reason=$(accept_done ship "$mode" "$wt" "$repo" "$line")
+      rc=$?
+      [ "$rc" -eq 1 ] || fail "noncanonical checks-green done: was accepted for mode '$mode': $line"
+      case "$reason" in
+        *"requires a checks-green PR or published Gerrit change"*) ;;
+        *) fail "noncanonical checks-green done: returned the wrong refusal: $reason" ;;
+      esac
+    done
+  done
+  accept_done ship no-mistakes "$wt" "$repo" \
+    'done: PR https://gitlab.example.test/o/r/-/merge_requests/7 checks green' \
+    || fail "canonical GitLab checks-green done: was refused"
+  pass "no-mistakes checks-green done: requires a canonical PR URL"
 }
 
 test_local_only_linked_branch_is_accepted() {
@@ -394,6 +421,7 @@ test_pr_based_dod_draft_check_uses_gh_axi() {
 test_scout_done_is_not_gated
 test_unpushed_ship_done_is_refused
 test_no_mistakes_prevalidation_done_is_refused
+test_no_mistakes_checks_green_requires_canonical_pr_url
 test_remote_containing_named_head_is_accepted
 test_moved_branch_without_named_head_is_refused
 test_free_text_sha_is_not_the_named_head
