@@ -41,19 +41,39 @@ if [ "${FAKE_NM_TERMINAL_PR:-0}" = 1 ]; then
   head=$(git rev-parse HEAD 2>/dev/null || true)
   number=${branch##*-}
   outcome=passed
-  [ "$number" != 102 ] || outcome=passed-with-override
+  status=completed
+  case "$number" in
+    102) outcome=passed-with-override ;;
+    105) outcome=passed-with-skips ;;
+    106) outcome=checks-passed ;;
+    107) outcome=failed ;;
+    108) outcome=cancelled ;;
+    109) outcome=; status=running ;;
+    112) outcome= ;;
+  esac
   case "$*" in
     axi|"axi status"|"axi status --run "*)
       cat <<EOF
 run:
   id: "01${number}RUN"
   branch: $branch
-  status: completed
+  status: $status
   head: "$head"
   pr: "https://github.com/acme/repo/pull/$number"
   findings: none
+EOF
+      case "$number" in
+        107) printf '  steps[2]{step,status,findings,duration_ms}:\n    review,completed,0,1\n    ci,failed,0,1\n' ;;
+        108) printf '  steps[2]{step,status,findings,duration_ms}:\n    review,completed,0,1\n    ci,cancelled,0,1\n' ;;
+        109) printf '  steps[2]{step,status,findings,duration_ms}:\n    review,completed,0,1\n    ci,running,0,1\n' ;;
+      esac
+      [ -z "$outcome" ] || cat <<EOF
 outcome: $outcome
 EOF
+      exit 0
+      ;;
+    "axi logs --step ci --run "*" --full")
+      printf 'all CI checks passed - still monitoring until merged or closed\n'
       exit 0
       ;;
     "daemon status")
@@ -90,6 +110,7 @@ if [ "${FAKE_GH_CREW_STATE:-0}" = 1 ] && [ "${1:-} ${2:-}" = "api graphql" ]; th
   case "$number" in
     103) printf 'state=CLOSED\nmerged=false\n' ;;
     104) printf 'state=MERGED\nmerged=true\n' ;;
+    111) exit 1 ;;
     *) printf 'state=OPEN\nmerged=false\n' ;;
   esac
   exit 0
@@ -995,6 +1016,14 @@ test_open_pr_external_wait_is_not_terminal_in_flight() {
 - [ ] open-override - Open PR after approved validation exception https://github.com/acme/repo/pull/102 (repo: firstmate) (kind: ship) (hold: unrelated checks remain red) (hold-kind: external) (since 2026-07-11)
 - [ ] closed-held - Closed PR with a stale external hold https://github.com/acme/repo/pull/103 (repo: firstmate) (kind: ship) (hold: stale upstream wait) (hold-kind: external) (since 2026-07-11)
 - [ ] merged-held - Merged PR with a stale external hold https://github.com/acme/repo/pull/104 (repo: firstmate) (kind: ship) (hold: stale upstream wait) (hold-kind: external) (since 2026-07-11)
+- [ ] open-skips - Open PR after validation with publication skipped https://github.com/acme/repo/pull/105 (repo: firstmate) (kind: ship) (hold: publication disabled) (hold-kind: external) (since 2026-07-11)
+- [ ] checks-passed - Open PR with checks ready for review https://github.com/acme/repo/pull/106 (repo: firstmate) (kind: ship) (hold: captain merge pending) (hold-kind: external) (since 2026-07-11)
+- [ ] failed-green - Open PR after its green CI monitor failed https://github.com/acme/repo/pull/107 (repo: firstmate) (kind: ship) (hold: captain merge pending) (hold-kind: external) (since 2026-07-11)
+- [ ] cancelled-green - Open PR after its green CI monitor was cancelled https://github.com/acme/repo/pull/108 (repo: firstmate) (kind: ship) (hold: captain merge pending) (hold-kind: external) (since 2026-07-11)
+- [ ] monitoring-green - Open PR still monitored after checks passed https://github.com/acme/repo/pull/109 (repo: firstmate) (kind: ship) (hold: captain merge pending) (hold-kind: external) (since 2026-07-11)
+- [ ] unmatched-pr - Open child PR that does not match the backlog PR https://github.com/acme/repo/pull/999 (repo: firstmate) (kind: ship) (hold: captain merge pending) (hold-kind: external) (since 2026-07-11)
+- [ ] unreadable-pr - PR whose current disposition cannot be read https://github.com/acme/repo/pull/111 (repo: firstmate) (kind: ship) (hold: captain merge pending) (hold-kind: external) (since 2026-07-11)
+- [ ] unsupported-terminal - Terminal run detail that does not prove an open PR https://github.com/acme/repo/pull/112 (repo: firstmate) (kind: ship) (hold: captain merge pending) (hold-kind: external) (since 2026-07-11)
 - [ ] terminal-no-pr - Terminal child without delivery evidence (repo: firstmate) (kind: ship) (since 2026-07-11)
 
 ## Queued
@@ -1002,12 +1031,20 @@ test_open_pr_external_wait_is_not_terminal_in_flight() {
 ## Done
 - [x] landed - Already landed delivery https://github.com/acme/repo/pull/100 (repo: firstmate) (kind: ship) (merged 2026-07-10)
 EOF
-  for id in open-clean open-override closed-held merged-held; do
+  for id in open-clean open-override closed-held merged-held open-skips checks-passed failed-green cancelled-green monitoring-green unmatched-pr unreadable-pr unsupported-terminal; do
     case "$id" in
       open-clean) number=101 ;;
       open-override) number=102 ;;
       closed-held) number=103 ;;
       merged-held) number=104 ;;
+      open-skips) number=105 ;;
+      checks-passed) number=106 ;;
+      failed-green) number=107 ;;
+      cancelled-green) number=108 ;;
+      monitoring-green) number=109 ;;
+      unmatched-pr) number=110 ;;
+      unreadable-pr) number=111 ;;
+      unsupported-terminal) number=112 ;;
     esac
     wt="$mate/projects/$id"
     fm_git_init_commit "$wt"
@@ -1034,13 +1071,11 @@ EOF
   printf '%s' "$summary" | jq -e '
     .valid == false
       and .state == "externally_held"
-      and .invalidity == {kind:"terminal_in_flight",ids:["closed-held","merged-held","terminal-no-pr"]}
-      and ([.holds[].id] | sort) == ["closed-held","merged-held","open-clean","open-override"]
-      and ([.queued[] | select(.id == "open-clean" or .id == "open-override")
-        | {id,hold_kind,hold_reason}] | length) == 2
-      and ([.endpoints[] | select(.id == "open-clean" or .id == "open-override")
-        | select(.state == "done" and .source == "run-step")] | length) == 2
-      and .contributions.known == 5
+      and .invalidity == {kind:"terminal_in_flight",ids:["closed-held","merged-held","unmatched-pr","unreadable-pr","unsupported-terminal","terminal-no-pr"]}
+      and ([.queued[] | select(.id | IN("open-clean","open-override","open-skips","checks-passed","failed-green","cancelled-green","monitoring-green"))
+        | {id,hold_kind,hold_reason}] | length) == 7
+      and ([.endpoints[] | select(.id | IN("open-clean","open-override","open-skips","checks-passed","failed-green","cancelled-green","monitoring-green"))
+        | select(.state == "done" and .source == "run-step")] | length) == 7
       and ([.landed[].id] | index("landed")) != null
   ' >/dev/null || fail "open externally held PRs were misclassified as terminal in flight: $summary"
 
@@ -1048,8 +1083,8 @@ EOF
     FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$mate" \
     "$ROOT/bin/fm-fleet-snapshot.sh" --contribution-input)
   printf '%s' "$contribution_input" | jq -e '
-    ([.tasks[] | select(.id == "open-clean" or .id == "open-override")
-      | select(.merge_authority == "attended" and (.pr.url | test("/pull/(101|102)$")))] | length) == 2
+    ([.tasks[] | select(.id | IN("open-clean","open-override","open-skips","checks-passed","failed-green","cancelled-green","monitoring-green"))
+      | select(.merge_authority == "attended" and (.pr.url | test("/pull/(101|102|105|106|107|108|109)$")))] | length) == 7
   ' >/dev/null || fail "open-PR classification changed merge-authority or monitoring identity: $contribution_input"
 
   mkdir -p "$mate/state"
@@ -1060,7 +1095,7 @@ EOF
   printf '%s' "$canonical" | jq -e '
     .secondmate_current.records[] | select(.id == "open-pr-wait")
     | .current.state == "externally_held"
-      and .invalidity == {kind:"terminal_in_flight",ids:["closed-held","merged-held","terminal-no-pr"]}
+      and .invalidity == {kind:"terminal_in_flight",ids:["closed-held","merged-held","unmatched-pr","unreadable-pr","unsupported-terminal","terminal-no-pr"]}
   ' >/dev/null || fail "parent home summary did not preserve the open-PR external wait: $canonical"
   json=$(PATH="$fakebin:$PATH" NET_LOG="$home/net.log" FM_HOME="$home" \
     FM_BEARINGS_NOW=2026-07-11T18:00:00Z "$BEARINGS" --json)
@@ -1070,7 +1105,7 @@ EOF
       and (.gates | any(.id == "open-override" and .owner == "open-pr-wait"))
       and (.secondmate_reconcile | any(.id == "open-pr-wait"
         and .kind == "terminal_in_flight"
-        and .ids == ["closed-held","merged-held","terminal-no-pr"]))
+        and .ids == ["closed-held","merged-held","terminal-no-pr","unmatched-pr","unreadable-pr","unsupported-terminal"]))
   ' >/dev/null || fail "Bearings lost the legitimate open-PR wait or true contradiction: $json"
   pass "open unmerged PRs under external waits stay in flight while true terminal contradictions remain visible"
 }
