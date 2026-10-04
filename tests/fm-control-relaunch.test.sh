@@ -42,17 +42,13 @@ TASK_TMPS=()
 
 relaunch_cleanup() {
   local d
+  if [ -d "$TMP_ROOT" ] && [ ! -L "$TMP_ROOT" ]; then
+    find "$TMP_ROOT" -type d -name '*.git-hooks' -exec chmod u+rwx {} + 2>/dev/null || true
+    find "$TMP_ROOT" -type f -path '*.git-hooks/*' -exec chmod u+rw {} + 2>/dev/null || true
+  fi
   for d in "${TASK_TMPS[@]:-}"; do
-    if [ -n "$d" ] && [ -d "$d" ] && [ ! -L "$d" ]; then
-      find "$d" -type d -exec chmod u+rwx {} + 2>/dev/null || true
-      find "$d" -type f -exec chmod u+rw {} + 2>/dev/null || true
-    fi
     [ -n "$d" ] && rm -rf "$d"
   done
-  if [ -d "$TMP_ROOT" ] && [ ! -L "$TMP_ROOT" ]; then
-    find "$TMP_ROOT" -type d -exec chmod u+rwx {} + 2>/dev/null || true
-    find "$TMP_ROOT" -type f -exec chmod u+rw {} + 2>/dev/null || true
-  fi
   rm -rf "$TMP_ROOT"
 }
 trap relaunch_cleanup EXIT

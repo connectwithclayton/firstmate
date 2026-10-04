@@ -2681,8 +2681,7 @@ remove_firstmate_home() {
   fi
   # Read-only strip dirs sit at state/<id>.git-hooks, and a remote secondmate's
   # own one under state/parent-route/, so search the whole state tree.
-  find "$abs_home_path/state" -type d -name '*.git-hooks' -exec chmod u+rwx {} + 2>/dev/null || true
-  find "$abs_home_path/state" -type f -path '*.git-hooks/*' -exec chmod u+rw {} + 2>/dev/null || true
+  find "$abs_home_path/state" -type d -name '*.git-hooks' -exec chmod u+w {} + 2>/dev/null || true
   if firstmate_home_has_treehouse_slot "$abs_home_path"; then
     command -v treehouse >/dev/null 2>&1 || {
       echo "error: treehouse command not found; cannot return $label $abs_home_path" >&2
@@ -3331,8 +3330,7 @@ cleanup_firstmate_home_children() {
       "$sub_state/$child_id.cursor-session" "$sub_state/$child_id.reconcile-nudged" \
       "$sub_state/$child_id.devin-config.json" \
       "$sub_state/.$child_id.branch-outcome-index"
-    chmod u+rwx "$sub_state/$child_id.git-hooks" 2>/dev/null || true
-    find "$sub_state/$child_id.git-hooks" -type f -exec chmod u+rw {} + 2>/dev/null || true
+    chmod u+w "$sub_state/$child_id.git-hooks" 2>/dev/null || true
     rm -rf "$sub_state/$child_id.git-hooks"
   done
 }

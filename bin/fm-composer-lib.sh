@@ -1618,22 +1618,34 @@ _fm_composer_halfblock_row_shape() {  # <row> <glyph>
   printf '%s' "$shape"
 }
 
+_fm_composer_cursor_footer_row() {  # <row>
+  local row=$1 count
+  fm_composer_normalize_trim_var row
+  case "$row" in
+    '') return 0 ;;
+    *' tasks') count=${row% tasks} ;;
+    *' task') count=${row% task} ;;
+    Cursor*'Run Everything') return 0 ;;
+    '~/'*' · '[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) return 0 ;;
+    /*' · '[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) return 0 ;;
+    *) return 1 ;;
+  esac
+  case "$count" in
+    ''|*[!0-9]*) return 1 ;;
+    *)
+      return 0
+      ;;
+  esac
+}
+
 # _fm_composer_halfblock_encloses_arrow: 0 only when <arrow-row> is inside a
-# complete Herdr Cursor envelope with matching U+2584 and U+2580 rules.
+# complete bottom-live Herdr Cursor envelope with matching rules.
 _fm_composer_halfblock_encloses_arrow() {  # <plain-screen> <arrow-row>
   local plain=$1 arrow=$2 rows row top_shape='' bottom_shape='' candidate
   rows=$(printf '%s\n' "$plain" | awk 'END { print NR }')
   row=$((arrow - 1))
-  while [ "$row" -ge 0 ]; do
-    candidate=$(_fm_composer_screen_row "$row" "$plain")
-    case "$candidate" in
-      *▄*|*▀*)
-        top_shape=$(_fm_composer_halfblock_row_shape "$candidate" ▄) || return 1
-        break
-        ;;
-    esac
-    row=$((row - 1))
-  done
+  candidate=$(_fm_composer_screen_row "$row" "$plain")
+  top_shape=$(_fm_composer_halfblock_row_shape "$candidate" ▄) || return 1
   [ -n "$top_shape" ] || return 1
   row=$((arrow + 1))
   while [ "$row" -lt "$rows" ]; do
@@ -1646,7 +1658,13 @@ _fm_composer_halfblock_encloses_arrow() {  # <plain-screen> <arrow-row>
     esac
     row=$((row + 1))
   done
-  [ -n "$bottom_shape" ] && [ "$top_shape" = "$bottom_shape" ]
+  [ -n "$bottom_shape" ] && [ "$top_shape" = "$bottom_shape" ] || return 1
+  row=$((row + 1))
+  while [ "$row" -lt "$rows" ]; do
+    candidate=$(_fm_composer_screen_row "$row" "$plain")
+    _fm_composer_cursor_footer_row "$candidate" || return 1
+    row=$((row + 1))
+  done
 }
 
 fm_composer_extract_selected_content() {  # <caps> <screen>

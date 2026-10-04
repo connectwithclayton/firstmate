@@ -429,12 +429,13 @@ test_matrix_herdr_halfblock_rule_bounds_bare_wrap() {
 }
 
 test_matrix_herdr_cursor_requires_complete_halfblock_envelope() {
-  local history wrapped incomplete mismatched uncontained lower out
+  local history wrapped incomplete mismatched uncontained stale lower out footer
+  footer=$'  Cursor Grok 4.5 High · 7%           Run Everything\n  ~/wt · 39418af'
   history=$'turn_ended/error\nagent state done\n  → Add a follow-up'
   assert_screen "Herdr Cursor history-only arrow" unknown "$CAPS_HERDR_CURSOR" \
     "$history" '' $'cursor\tblocked'
 
-  wrapped=$'turn_ended/error\n ▄▄▄▄▄▄▄▄\n  → first wrapped line\nsecond wrapped line\n ▀▀▀▀▀▀▀▀\n  Cursor footer'
+  wrapped=$'turn_ended/error\n ▄▄▄▄▄▄▄▄\n  → first wrapped line\nsecond wrapped line\n ▀▀▀▀▀▀▀▀\n'"$footer"
   assert_screen "Herdr Cursor wrapped pending envelope" pending "$CAPS_HERDR_CURSOR" \
     "$wrapped" '' $'cursor\tblocked'
 
@@ -450,7 +451,11 @@ test_matrix_herdr_cursor_requires_complete_halfblock_envelope() {
   assert_screen "Herdr Cursor uncontained history candidate" unknown "$CAPS_HERDR_CURSOR" \
     "$uncontained" '' $'cursor\tblocked'
 
-  lower=$'turn_ended/error\n  → history prompt\n ▄▄▄▄▄▄▄▄\n  → Add a follow-up\n ▀▀▀▀▀▀▀▀\n  Cursor footer'
+  stale=$'turn_ended/error\n ▄▄▄▄▄▄▄▄\n  → Add a follow-up\n ▀▀▀▀▀▀▀▀\nerror: usage exhausted\n  → prior history'
+  assert_screen "stale complete Herdr Cursor envelope" unknown "$CAPS_HERDR_CURSOR" \
+    "$stale" '' $'cursor\tblocked'
+
+  lower=$'turn_ended/error\n  → history prompt\n ▄▄▄▄▄▄▄▄\n  → Add a follow-up\n ▀▀▀▀▀▀▀▀\n'"$footer"
   assert_screen "Herdr Cursor history above lower live composer" empty "$CAPS_HERDR_CURSOR" \
     "$lower" '' $'cursor\tblocked'
 
