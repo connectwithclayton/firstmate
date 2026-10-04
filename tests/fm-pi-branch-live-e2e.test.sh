@@ -771,6 +771,12 @@ capturedApi.sendMessage({
   content: `⛵ fm-toolroll-ci: CI fix merged: ${pullUrl}`,
   display: true,
 });
+const longerPullUrl = `${pullUrl}/files`;
+capturedApi.sendMessage({
+  customType: "fm-branch-merge",
+  content: `⛵ fm-toolroll-ci: Review files: ${longerPullUrl}`,
+  display: true,
+});
 
 const renderedLines = interactive.chatContainer.render(240);
 const rendered = renderedLines.join("\n");
@@ -786,6 +792,16 @@ const visibleLine = stripTerminalSequences(linkedLine);
 const linkColumn = visibleWidth(visibleLine.slice(0, visibleLine.indexOf(pullUrl)));
 if (getOsc8LinkAtColumn(linkedLine, linkColumn) !== pullUrl) {
   throw new Error(`Pi's fullscreen click resolver cannot recover the exact routine PR destination: ${JSON.stringify(linkedLine)}`);
+}
+const longerLine = renderedLines.find((line) => stripTerminalSequences(line).includes(longerPullUrl));
+if (!longerLine) throw new Error(`active Pi transcript did not render the longer PR URL: ${rendered}`);
+const longerVisibleLine = stripTerminalSequences(longerLine);
+const longerLinkColumn = visibleWidth(longerVisibleLine.slice(0, longerVisibleLine.indexOf(longerPullUrl)));
+for (let offset = 0; offset < pullUrl.length; offset += 1) {
+  const destination = getOsc8LinkAtColumn(longerLine, longerLinkColumn + offset);
+  if (destination !== undefined) {
+    throw new Error(`Pi's fullscreen click resolver partially linked a longer PR path to ${destination}: ${JSON.stringify(longerLine)}`);
+  }
 }
 
 const reopened = SessionManager.open(manager.getSessionFile(), sessions);
@@ -807,7 +823,7 @@ out=$(cat "$TMP_ROOT/delivery-output")
 if [ "$status" -ne 0 ] || [ "$out" != "DELIVERY_OK" ]; then
   fail "real-SDK visible outcome delivery guard failed against pi-coding-agent $PI_VERSION: $out"
 fi
-pass "real Pi SDK $PI_VERSION renders exact outcome entries and gives a routine PR URL its exact fullscreen click target"
+pass "real Pi SDK $PI_VERSION gives only a canonical PR URL its exact fullscreen click target"
 
 # Sixth probe: the vendor event contract watcher continuity rests on, against
 # the real AgentSession and ExtensionRunner with the tracked watcher extension
