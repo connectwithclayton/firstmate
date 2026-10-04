@@ -18,9 +18,8 @@
 # (secondmate ledger-first publish of a child done). A ship `done:` is not
 # accepted while the named head exists only in the worker's disposable copy.
 # The check tests that head, not whether some branch moved. In no-mistakes
-# mode the pre-validation `done: {summary}` is the pipeline handoff and is
-# not gated; only the later CI-ready `done: PR <url> checks green` is, or on a
-# Gerrit project the later `done: PR <change url> published for review`. The
+# mode only the CI-ready `done: PR <url> checks green` is accepted, or on a
+# Gerrit project `done: PR <change url> published for review`. The
 # named head is the worker copy's HEAD, except that a done naming the task's
 # recorded pr= passes when the forge holds that head: a forge-reported
 # pr_head= in no-mistakes mode, or a recorded merge
@@ -489,18 +488,14 @@ fm_dod_note_reports_published_change() {  # <note>
   return 1
 }
 
-# 0 when this ship done: is one the named-head gate must accept or refuse.
-# no-mistakes pre-validation done: is the pipeline handoff and is not gated.
+# 0 when this ship done: is one the delivery gate must accept or refuse.
 # Empty mode is treated as no-mistakes, the unregistered-project default.
 fm_dod_should_gate_ship_done() {  # <kind> <mode> <line>
-  local note
   [ "$1" = ship ] || return 1
   [ "$(status_line_verb "$3")" = "done" ] || return 1
-  note=$(status_line_note "$3")
   case "$2" in
     direct-PR|local-only) return 0 ;;
-    no-mistakes|'')
-      fm_dod_note_reports_ci_ready "$note" || fm_dod_note_reports_published_change "$note" ;;
+    no-mistakes|'') return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -640,9 +635,18 @@ fm_dod_named_head_reachable_outside_worktree() {  # <worktree> <project> <mode> 
 # pr_head=, and the merge-notified marker; <meta> may be a captured copy
 # (bin/fm-fleet-snapshot.sh), so the marker is read from <state>.
 fm_dod_accept_ship_done() {  # <kind> <mode> <worktree> <project> <line> [<state> <id> <meta>]
-  local kind=$1 mode=$2 wt=$3 project=$4 line=$5 state=${6:-} id=${7:-} meta=${8:-} url sha gerrit
+  local kind=$1 mode=$2 wt=$3 project=$4 line=$5 state=${6:-} id=${7:-} meta=${8:-} url sha gerrit note
   fm_dod_should_gate_ship_done "$kind" "$mode" "$line" || return 0
-  if url=$(fm_dod_pr_url_from_done_note "$(status_line_note "$line")") \
+  note=$(status_line_note "$line")
+  case "$mode" in
+    no-mistakes|'')
+      if ! fm_dod_note_reports_ci_ready "$note" && ! fm_dod_note_reports_published_change "$note"; then
+        printf '%s\n' "no-mistakes done requires a checks-green PR or published Gerrit change; use needs-validation for the implementation handoff"
+        return 1
+      fi
+      ;;
+  esac
+  if url=$(fm_dod_pr_url_from_done_note "$note") \
     && fm_dod_recorded_pr_on_forge "$state" "$id" "$meta" "$mode" "$url"; then
     return 0
   fi

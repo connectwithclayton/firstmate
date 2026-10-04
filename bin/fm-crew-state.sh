@@ -240,8 +240,8 @@ fi
 # reports `paused` distinctly, so a supervisor reading this sees a declared pause
 # and its reason rather than a wedge-suspect idle.
 # A ship `done:` is not current-state done while bin/fm-dod-lib.sh refuses the
-# named-head reachability gate: that claim is blocked so a disposable copy is
-# not treated as finished-and-safe.
+# delivery gate: that claim is blocked so an early handoff or disposable copy
+# is not treated as finished-and-safe.
 emit_ship_status_done() {  # [extra-detail]
   local extra=${1:-} reason
   if reason=$(fm_dod_accept_ship_done "$KIND" "$(meta_value mode)" "$WT" "$(meta_value project)" "$LOG_LINE" "$STATE" "$ID" "$META"); then

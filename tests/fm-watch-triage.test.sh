@@ -2324,7 +2324,7 @@ test_terminal_stale_surfaced() {
 # Regression for the 2026-07 herdr false-surface incidents: a crew's own status
 # log gets no new entry once firstmate hands it to a no-mistakes validation
 # (AGENTS.md's sparse status-reporting contract), so the log keeps showing its
-# pre-validation "done:" line as the LAST line for the run's entire (possibly
+# pre-validation "needs-validation:" line as the LAST line for the run's entire (possibly
 # many-minutes) duration. stale_is_terminal alone has no run-step awareness and
 # would treat that leftover as still-current every time the pane goes quiet,
 # immediately surfacing a crew that is actively validating. crew_is_provably_working
@@ -2337,7 +2337,7 @@ test_stale_terminal_status_overridden_by_active_run() {
   window="test:fm-validating"
   printf 'no-mistakes axi run: validating...' > "$capture_file"
   printf 'window=%s\nkind=ship\n' "$window" > "$state/validating.meta"
-  # The crew reported done BEFORE firstmate triggered no-mistakes validation;
+  # The crew handed off BEFORE firstmate triggered no-mistakes validation;
   # this line never gets superseded by a newer status-log entry while the
   # pipeline itself runs.
   printf 'needs-validation: implementation complete and committed\n' > "$state/validating.status"
@@ -2349,7 +2349,7 @@ test_stale_terminal_status_overridden_by_active_run() {
   export FM_FAKE_CREW_STATE='state: working · source: run-step · validating (running)'
 
   # Phase A: a high escalation threshold means the first sighting is absorbed,
-  # not surfaced, despite the captain-relevant "done:" status-log line.
+  # not surfaced, despite the captain-relevant handoff status-log line.
   PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_STALE_ESCALATE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &

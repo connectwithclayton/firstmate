@@ -2418,7 +2418,7 @@ test_merged_pr_reads_done_under_captured_meta() {
   pass "recorded merged PR reads done under the fleet snapshot's captured meta"
 }
 
-test_no_mistakes_prevalidation_done_stays_done() {
+test_no_mistakes_prevalidation_done_is_blocked() {
   reset_fakes
   local d out
   d=$(new_case preval-done)
@@ -2434,9 +2434,10 @@ test_no_mistakes_prevalidation_done_stays_done() {
   FM_FAKE_BUSY=0
   arm_idle_record "$d/state" preval
   out=$(run_crew_state "$d" preval)
-  assert_contains "$out" "state: done" "no-mistakes pre-validation done: remains done"
-  assert_not_contains "$out" "state: blocked" "pre-validation done: must not be the named-head gate"
-  pass "no-mistakes pre-validation done: stays current-state done"
+  assert_contains "$out" "state: blocked" "no-mistakes pre-validation done: must not complete"
+  assert_contains "$out" "use needs-validation for the implementation handoff" "no-mistakes pre-validation done: did not identify the canonical handoff"
+  assert_not_contains "$out" "state: done" "no-mistakes pre-validation done: remained terminal"
+  pass "no-mistakes pre-validation done: is blocked"
 }
 
 test_moved_remote_branch_without_named_head_is_blocked() {
@@ -2884,7 +2885,7 @@ test_single_owner_terminal_declaration_supersedes_stale_decision() {
   make_fakebin "$d" >/dev/null
   arm_idle_record "$d/state" task
   for kind in scout ship; do
-    fm_write_meta "$d/state/task.meta" "window=fm:fm-task" "worktree=$d/wt" "kind=$kind" "harness=claude"
+    fm_write_meta "$d/state/task.meta" "window=fm:fm-task" "worktree=$d/wt" "project=$d/wt" "kind=$kind" "mode=local-only" "harness=claude"
     for opener in needs-decision blocked; do
       for terminal in 'done' failed; do
         printf '%s [key=choice]: an earlier decision\n%s: final outcome\nContinuation prose.\n\n' \
@@ -5595,7 +5596,7 @@ test_coarse_run_does_not_probe_other_branch_ci_log_for_ready_status
 test_other_branch_run_ignored
 test_unpushed_ship_done_is_blocked
 test_merged_pr_reads_done_under_captured_meta
-test_no_mistakes_prevalidation_done_stays_done
+test_no_mistakes_prevalidation_done_is_blocked
 test_moved_remote_branch_without_named_head_is_blocked
 test_no_run_busy_pane
 test_no_run_launch_prompt_parked_is_not_working
