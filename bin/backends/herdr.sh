@@ -3195,9 +3195,9 @@ fm_backend_herdr_composer_state() {  # <target> -> empty|pending|pending-unprove
   local target=$1 cap caps verdict identity
   fm_backend_herdr_parse_target "$target" || { printf 'unknown'; return 0; }
   if cap=$(fm_backend_herdr_visible_capture_ansi "$target" 2>/dev/null); then
-    caps=$(printf 'styled=1\ncursor=0\nidentity=1')
+    caps=$(printf 'styled=1\ncursor=0\nidentity=1\nherdr=1')
   elif cap=$(fm_backend_herdr_visible_capture "$target"); then
-    caps=$(printf 'styled=0\ncursor=0\nidentity=1')
+    caps=$(printf 'styled=0\ncursor=0\nidentity=1\nherdr=1')
   else
     printf 'unknown'
     return 0

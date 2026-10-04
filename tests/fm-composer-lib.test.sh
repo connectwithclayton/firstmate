@@ -156,7 +156,8 @@ test_real_text_is_pending() {
 ESC=$(printf '\033')
 NBSP=$(printf '\302\240')
 CAPS_TMUX=$'styled=1\ncursor=1\nidentity=1\nrows=0'
-CAPS_STYLED=$'styled=1\ncursor=0\nidentity=1\nrows=20'      # herdr
+CAPS_STYLED=$'styled=1\ncursor=0\nidentity=1\nrows=20'      # generic styled backend
+CAPS_HERDR_CURSOR=$'styled=1\ncursor=0\nidentity=1\nherdr=1\nrows=20'
 CAPS_STYLED_NOID=$'styled=1\ncursor=0\nidentity=0\nrows=20' # zellij
 CAPS_PLAIN=$'styled=0\ncursor=0\nidentity=0\nrows=20'       # cmux, orca
 
@@ -417,10 +418,47 @@ test_matrix_herdr_halfblock_rule_bounds_bare_wrap() {
   case "$plain" in *"Run Everything"*) : ;; *) fail "fixture lost its footer content" ;; esac
   ESC_LOCAL=$(printf '\033')
   screen=$'transcript\n ▄▄▄▄▄▄▄▄\n'"  ${ESC_LOCAL}[2m→ ${ESC_LOCAL}[0;7mA${ESC_LOCAL}[0;2mdd a follow-up${ESC_LOCAL}[0m"$'\n ▀▀▀▀▀▀▀▀\n  Cursor Grok 4.5 High · 6.7%   Run Everything\n  ~/wt · 64cdd3a'
-  out=$(fm_composer_classify_screen "$CAPS_STYLED" "$screen")
+  out=$(fm_composer_classify_screen "$CAPS_HERDR_CURSOR" "$screen" '' $'cursor\tblocked')
   [ "$out" = empty ] \
-    || fail "an idle cursor composer inside herdr half-block rules must read empty, got '$out'"
-  pass "matrix: herdr half-block rules bound a bare composer's wrap region"
+    || fail "an idle cursor composer inside a complete Herdr envelope must read empty, got '$out'"
+  # The same shape on a non-Herdr styled backend retains the existing generic
+  # bare-composer behavior, proving this safety boundary is path-specific.
+  assert_screen "half-block cursor shape on a non-Herdr backend" empty \
+    "$CAPS_STYLED" "$screen"
+  pass "matrix: Herdr Cursor half-block rules bound a bare composer's wrap region"
+}
+
+test_matrix_herdr_cursor_requires_complete_halfblock_envelope() {
+  local history wrapped incomplete mismatched uncontained lower out
+  history=$'turn_ended/error\nagent state done\n  → Add a follow-up'
+  assert_screen "Herdr Cursor history-only arrow" unknown "$CAPS_HERDR_CURSOR" \
+    "$history" '' $'cursor\tblocked'
+
+  wrapped=$'turn_ended/error\n ▄▄▄▄▄▄▄▄\n  → first wrapped line\nsecond wrapped line\n ▀▀▀▀▀▀▀▀\n  Cursor footer'
+  assert_screen "Herdr Cursor wrapped pending envelope" pending "$CAPS_HERDR_CURSOR" \
+    "$wrapped" '' $'cursor\tblocked'
+
+  incomplete=$'turn_ended/error\n ▄▄▄▄▄▄▄▄\n  → Add a follow-up\n  Cursor footer'
+  assert_screen "Herdr Cursor incomplete envelope" unknown "$CAPS_HERDR_CURSOR" \
+    "$incomplete" '' $'cursor\tblocked'
+
+  mismatched=$'turn_ended/error\n ▄▄▄▄▄▄▄▄\n  → Add a follow-up\n ▀▀▀▀▀\n  Cursor footer'
+  assert_screen "Herdr Cursor mismatched envelope" unknown "$CAPS_HERDR_CURSOR" \
+    "$mismatched" '' $'cursor\tblocked'
+
+  uncontained=$' ▄▄▄▄▄▄▄▄\n  transcript history\n ▀▀▀▀▀▀▀▀\n  → Add a follow-up'
+  assert_screen "Herdr Cursor uncontained history candidate" unknown "$CAPS_HERDR_CURSOR" \
+    "$uncontained" '' $'cursor\tblocked'
+
+  lower=$'turn_ended/error\n  → history prompt\n ▄▄▄▄▄▄▄▄\n  → Add a follow-up\n ▀▀▀▀▀▀▀▀\n  Cursor footer'
+  assert_screen "Herdr Cursor history above lower live composer" empty "$CAPS_HERDR_CURSOR" \
+    "$lower" '' $'cursor\tblocked'
+
+  out=$(fm_composer_classify_screen "$CAPS_HERDR_CURSOR" "$history")
+  [ "$out" = need-identity ] || fail "Herdr Cursor arrow must request identity before classifying, got '$out'"
+  out=$(fm_composer_classify_screen "$CAPS_HERDR_CURSOR" "$history" '' probe-absent)
+  [ "$out" = unknown ] || fail "missing Herdr Cursor identity must remain unknown, got '$out'"
+  pass "matrix: Herdr Cursor arrows require a complete matching half-block envelope"
 }
 
 test_matrix_omp_status_row_bounds_bare_composer() {

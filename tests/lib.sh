@@ -240,12 +240,13 @@ fm_test_reap_watchers() {
 FM_TEST_STUB_MAX_BLOCK_SECONDS=${FM_TEST_STUB_MAX_BLOCK_SECONDS:-120}
 export FM_TEST_STUB_MAX_BLOCK_SECONDS
 
-# Remove a fixture tree even when it holds a read-only directory, such as the
-# spawn-owned state/<id>.git-hooks strip directory.
+# Remove a fixture tree even when it holds read-only files or directories, such
+# as the spawn-owned state/<id>.git-hooks strip directory.
 fm_test_remove_tree() {
   local dir=$1
   if [ -d "$dir" ] && [ ! -L "$dir" ]; then
     find "$dir" -type d -exec chmod u+rwx {} + 2>/dev/null || true
+    find "$dir" -type f -exec chmod u+rw {} + 2>/dev/null || true
   fi
   rm -rf "$dir"
 }

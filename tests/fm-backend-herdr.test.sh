@@ -4578,6 +4578,7 @@ test_composer_state_cursor_midturn_row_reads_pending() {
   local dir log resp fb out
   dir="$TMP_ROOT/composer-cursor-midturn"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
   herdr_cursor_midturn_ansi > "$resp/1.out"
+  printf '{"result":{"agent":{"agent":"cursor","agent_status":"blocked"}}}\n' > "$resp/2.out"
   fb=$(make_herdr_fakebin "$dir")
   out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
     bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_composer_state default:w1:p2' "$ROOT" )
@@ -4621,6 +4622,8 @@ test_send_text_submit_confirms_never_idle_native_state_via_footer_transition() {
   herdr_cursor_midturn_ansi > "$resp/5.out"
   herdr_cursor_midturn_plain > "$resp/6.out"
   herdr_submit_identity_prefix "$resp" codex
+  mv "$resp/7.out" "$resp/8.out"
+  printf '{"result":{"agent":{"agent":"cursor","agent_status":"blocked"}}}\n' > "$resp/7.out"
   fb=$(make_herdr_fakebin "$dir")
   out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
     bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_send_text_submit default:w1:p2 "hello captain" 3 0.01 0.01' "$ROOT" )
@@ -4641,6 +4644,9 @@ test_send_text_submit_never_idle_native_state_keeps_pending_without_a_transition
   herdr_cursor_midturn_ansi > "$resp/5.out"
   herdr_cursor_midturn_ansi > "$resp/7.out"
   herdr_submit_identity_prefix "$resp" codex
+  mv "$resp/8.out" "$resp/9.out"
+  printf '{"result":{"agent":{"agent":"cursor","agent_status":"blocked"}}}\n' > "$resp/7.out"
+  printf '{"result":{"agent":{"agent":"cursor","agent_status":"blocked"}}}\n' > "$resp/10.out"
   fb=$(make_herdr_fakebin "$dir")
   out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
     bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_send_text_submit default:w1:p2 "hello captain" 2 0.01 0.01' "$ROOT" )
