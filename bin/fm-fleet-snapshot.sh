@@ -1038,8 +1038,7 @@ secondmate_home_summary_json() {  # <backlog-json-file> <tasks-json-file>
         and $task.current_state.state == "done"
         and $task.current_state.source == "run-step"
         and $task.pr.url == $work.pr_url
-        and (($task.current_state.detail // "") | test(
-          "^(?:run passed: PR open(?: \\(publication/CI verification skipped\\))?|checks green: PR ready for review(?: \\(still monitoring for merge/close\\))?(?:: https?://[^ ]+)?|checks green: PR held for merge \\(ci monitor ended\\)(?:: https?://[^ ]+)?)(?: ·|$)"));
+        and (($task.current_state.detail // "") | test("^run passed: PR open(?: ·|$)"));
     ([ $owned_in_flight[] as $work
          | $tasks[]
          | select(.kind != "secondmate")

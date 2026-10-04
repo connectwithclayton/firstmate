@@ -50,6 +50,10 @@ if [ "${FAKE_NM_TERMINAL_PR:-0}" = 1 ]; then
     108) outcome=cancelled ;;
     109) outcome=; status=running ;;
     112) outcome= ;;
+    113) outcome=checks-passed ;;
+    114) outcome=; status=running ;;
+    115) outcome=checks-passed ;;
+    116) outcome=; status=running ;;
   esac
   case "$*" in
     axi|"axi status"|"axi status --run "*)
@@ -65,7 +69,7 @@ EOF
       case "$number" in
         107) printf '  steps[2]{step,status,findings,duration_ms}:\n    review,completed,0,1\n    ci,failed,0,1\n' ;;
         108) printf '  steps[2]{step,status,findings,duration_ms}:\n    review,completed,0,1\n    ci,cancelled,0,1\n' ;;
-        109) printf '  steps[2]{step,status,findings,duration_ms}:\n    review,completed,0,1\n    ci,running,0,1\n' ;;
+        109|114|116) printf '  steps[2]{step,status,findings,duration_ms}:\n    review,completed,0,1\n    ci,running,0,1\n' ;;
       esac
       [ -z "$outcome" ] || cat <<EOF
 outcome: $outcome
@@ -111,6 +115,10 @@ if [ "${FAKE_GH_CREW_STATE:-0}" = 1 ] && [ "${1:-} ${2:-}" = "api graphql" ]; th
     103) printf 'state=CLOSED\nmerged=false\n' ;;
     104) printf 'state=MERGED\nmerged=true\n' ;;
     111) exit 1 ;;
+    113) printf 'state=CLOSED\nmerged=false\n' ;;
+    114) printf 'state=MERGED\nmerged=true\n' ;;
+    115) printf 'state=MERGED\nmerged=true\n' ;;
+    116) printf 'state=CLOSED\nmerged=false\n' ;;
     *) printf 'state=OPEN\nmerged=false\n' ;;
   esac
   exit 0
@@ -1004,7 +1012,7 @@ EOF
 # A URL alone is insufficient: a closed PR and a terminal task without a PR
 # remain contradictions, while already-landed backlog work remains landed.
 test_open_pr_external_wait_is_not_terminal_in_flight() {
-  local home mate fakebin summary canonical json contribution_input id wt number
+  local home mate fakebin summary canonical json contribution_input crew_state id wt number
   home=$(make_home open-pr-external-wait)
   mate="$TMP_ROOT/open-pr-external-wait-home"
   make_valid_secondmate_home open-pr-wait "$mate"
@@ -1024,6 +1032,10 @@ test_open_pr_external_wait_is_not_terminal_in_flight() {
 - [ ] unmatched-pr - Open child PR that does not match the backlog PR https://github.com/acme/repo/pull/999 (repo: firstmate) (kind: ship) (hold: captain merge pending) (hold-kind: external) (since 2026-07-11)
 - [ ] unreadable-pr - PR whose current disposition cannot be read https://github.com/acme/repo/pull/111 (repo: firstmate) (kind: ship) (hold: captain merge pending) (hold-kind: external) (since 2026-07-11)
 - [ ] unsupported-terminal - Terminal run detail that does not prove an open PR https://github.com/acme/repo/pull/112 (repo: firstmate) (kind: ship) (hold: captain merge pending) (hold-kind: external) (since 2026-07-11)
+- [ ] checks-closed - PR closed after checks passed https://github.com/acme/repo/pull/113 (repo: firstmate) (kind: ship) (hold: stale captain merge wait) (hold-kind: external) (since 2026-07-11)
+- [ ] monitoring-merged - PR merged while its green monitor remained live https://github.com/acme/repo/pull/114 (repo: firstmate) (kind: ship) (hold: stale captain merge wait) (hold-kind: external) (since 2026-07-11)
+- [ ] checks-merged - PR merged after checks passed https://github.com/acme/repo/pull/115 (repo: firstmate) (kind: ship) (hold: stale captain merge wait) (hold-kind: external) (since 2026-07-11)
+- [ ] monitoring-closed - PR closed while its green monitor remained live https://github.com/acme/repo/pull/116 (repo: firstmate) (kind: ship) (hold: stale captain merge wait) (hold-kind: external) (since 2026-07-11)
 - [ ] terminal-no-pr - Terminal child without delivery evidence (repo: firstmate) (kind: ship) (since 2026-07-11)
 
 ## Queued
@@ -1031,7 +1043,7 @@ test_open_pr_external_wait_is_not_terminal_in_flight() {
 ## Done
 - [x] landed - Already landed delivery https://github.com/acme/repo/pull/100 (repo: firstmate) (kind: ship) (merged 2026-07-10)
 EOF
-  for id in open-clean open-override closed-held merged-held open-skips checks-passed failed-green cancelled-green monitoring-green unmatched-pr unreadable-pr unsupported-terminal; do
+  for id in open-clean open-override closed-held merged-held open-skips checks-passed failed-green cancelled-green monitoring-green unmatched-pr unreadable-pr unsupported-terminal checks-closed monitoring-merged checks-merged monitoring-closed; do
     case "$id" in
       open-clean) number=101 ;;
       open-override) number=102 ;;
@@ -1045,6 +1057,10 @@ EOF
       unmatched-pr) number=110 ;;
       unreadable-pr) number=111 ;;
       unsupported-terminal) number=112 ;;
+      checks-closed) number=113 ;;
+      monitoring-merged) number=114 ;;
+      checks-merged) number=115 ;;
+      monitoring-closed) number=116 ;;
     esac
     wt="$mate/projects/$id"
     fm_git_init_commit "$wt"
@@ -1063,6 +1079,21 @@ EOF
   printf 'done: implementation ended without a delivery\n' > "$mate/state/terminal-no-pr.status"
 
   fakebin=$(make_fakebin "$home")
+  for id in open-clean open-override open-skips checks-passed failed-green cancelled-green monitoring-green; do
+    crew_state=$(PATH="$fakebin:$PATH" NET_LOG="$home/net.log" \
+      FAKE_NM_TERMINAL_PR=1 FAKE_GH_CREW_STATE=1 \
+      FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$mate/state" \
+      "$ROOT/bin/fm-crew-state.sh" "$id")
+    printf '%s' "$crew_state" | grep -Fq 'run passed: PR open' \
+      || fail "$id did not carry authoritative current-open evidence: $crew_state"
+    case "$id" in
+      open-skips) printf '%s' "$crew_state" | grep -Fq 'publication/CI verification skipped' \
+        || fail "$id lost its publication-skip fact: $crew_state" ;;
+      checks-passed|failed-green|cancelled-green|monitoring-green)
+        printf '%s' "$crew_state" | grep -Fq 'checks green:' \
+          || fail "$id lost its checks-green monitoring fact: $crew_state" ;;
+    esac
+  done
   summary=$(PATH="$fakebin:$PATH" NET_LOG="$home/net.log" \
     FAKE_NM_TERMINAL_PR=1 FAKE_GH_CREW_STATE=1 \
     FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$mate" \
@@ -1071,7 +1102,7 @@ EOF
   printf '%s' "$summary" | jq -e '
     .valid == false
       and .state == "externally_held"
-      and .invalidity == {kind:"terminal_in_flight",ids:["closed-held","merged-held","unmatched-pr","unreadable-pr","unsupported-terminal","terminal-no-pr"]}
+      and .invalidity == {kind:"terminal_in_flight",ids:["closed-held","merged-held","unmatched-pr","unreadable-pr","unsupported-terminal","checks-closed","monitoring-merged","checks-merged","monitoring-closed","terminal-no-pr"]}
       and ([.queued[] | select(.id | IN("open-clean","open-override","open-skips","checks-passed","failed-green","cancelled-green","monitoring-green"))
         | {id,hold_kind,hold_reason}] | length) == 7
       and ([.endpoints[] | select(.id | IN("open-clean","open-override","open-skips","checks-passed","failed-green","cancelled-green","monitoring-green"))
@@ -1084,7 +1115,8 @@ EOF
     "$ROOT/bin/fm-fleet-snapshot.sh" --contribution-input)
   printf '%s' "$contribution_input" | jq -e '
     ([.tasks[] | select(.id | IN("open-clean","open-override","open-skips","checks-passed","failed-green","cancelled-green","monitoring-green"))
-      | select(.merge_authority == "attended" and (.pr.url | test("/pull/(101|102|105|106|107|108|109)$")))] | length) == 7
+      | select(.merge_authority == "attended"
+        and (.pr.url | test("/pull/(101|102|105|106|107|108|109)$")))] | length) == 7
   ' >/dev/null || fail "open-PR classification changed merge-authority or monitoring identity: $contribution_input"
 
   mkdir -p "$mate/state"
@@ -1095,7 +1127,7 @@ EOF
   printf '%s' "$canonical" | jq -e '
     .secondmate_current.records[] | select(.id == "open-pr-wait")
     | .current.state == "externally_held"
-      and .invalidity == {kind:"terminal_in_flight",ids:["closed-held","merged-held","unmatched-pr","unreadable-pr","unsupported-terminal","terminal-no-pr"]}
+      and .invalidity == {kind:"terminal_in_flight",ids:["closed-held","merged-held","unmatched-pr","unreadable-pr","unsupported-terminal","checks-closed","monitoring-merged","checks-merged","monitoring-closed","terminal-no-pr"]}
   ' >/dev/null || fail "parent home summary did not preserve the open-PR external wait: $canonical"
   json=$(PATH="$fakebin:$PATH" NET_LOG="$home/net.log" FM_HOME="$home" \
     FM_BEARINGS_NOW=2026-07-11T18:00:00Z "$BEARINGS" --json)
@@ -1105,7 +1137,7 @@ EOF
       and (.gates | any(.id == "open-override" and .owner == "open-pr-wait"))
       and (.secondmate_reconcile | any(.id == "open-pr-wait"
         and .kind == "terminal_in_flight"
-        and .ids == ["closed-held","merged-held","terminal-no-pr","unmatched-pr","unreadable-pr","unsupported-terminal"]))
+        and .ids == ["checks-closed","checks-merged","closed-held","merged-held","monitoring-closed","monitoring-merged","terminal-no-pr","unmatched-pr","unreadable-pr","unsupported-terminal"]))
   ' >/dev/null || fail "Bearings lost the legitimate open-PR wait or true contradiction: $json"
   pass "open unmerged PRs under external waits stay in flight while true terminal contradictions remain visible"
 }
