@@ -183,10 +183,14 @@ case " $* " in
   *" api --paginate repos/"*"/rules/branches/"*merge_queue*)
     ;;
   *" api --paginate repos/"*"/rules/branches/"*)
-    printf '%s\n' '[]'
+    printf '%s\n' "${FM_TEST_GH_RULES_JSON:-[]}"
     ;;
   *" api repos/"*"/branches/"*)
-    printf '%s\n' '{"name":"main","protected":false}'
+    if [ -n "${FM_TEST_GH_BRANCH_JSON:-}" ]; then
+      printf '%s\n' "$FM_TEST_GH_BRANCH_JSON"
+    else
+      printf '%s\n' '{"name":"main","protected":false}'
+    fi
     ;;
   *" api repos/"*"/pulls/"*)
     printf '%s\n' "{\"state\":\"open\",\"user\":{\"login\":\"author\"},\"head\":{\"sha\":\"${FM_TEST_GH_HEAD:-$default_head}\"},\"draft\":false,\"mergeable\":true,\"merged_at\":null}"
@@ -745,6 +749,17 @@ test_no_mistakes_registration_requires_attributed_green_head() {
   assert_grep 'does not report green checks' "$dir/stderr" \
     "red GitHub checks did not refuse registration"
   assert_no_grep '^pr=' "$dir/home/state/task-a.meta" "red GitHub PR reached task metadata"
+
+  dir=$(make_case no-mistakes-github-required-missing)
+  write_task_meta "$dir"
+  FM_TEST_GH_HEAD=$expected FM_TEST_NM_PIPELINE_HEAD=$expected \
+    FM_TEST_GH_BRANCH_JSON='{"name":"main","protected":true,"protection":{"required_status_checks":{"contexts":["ci","deploy"],"checks":[]}}}' \
+    run_check_entry "$dir" task-a https://github.com/o/r/pull/7 \
+    > "$dir/stdout" 2> "$dir/stderr" \
+    && fail "missing required GitHub check was recorded as checks green"
+  assert_grep 'does not report green checks' "$dir/stderr" \
+    "missing required GitHub check did not refuse registration"
+  assert_no_grep '^pr=' "$dir/home/state/task-a.meta" "GitHub PR missing a required check reached task metadata"
 
   dir=$(make_case no-mistakes-gitlab-head-mismatch)
   write_task_meta "$dir"
