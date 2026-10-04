@@ -912,6 +912,10 @@ if (!linkedNote.rendered.text.includes(exactLink)) {
 if (!linkedNote.fgCalls.some((call) => call.color === "accent" && call.text === pullUrl)) {
   throw new Error(`routine PR notification did not distinguish its clickable URL: ${JSON.stringify(linkedNote.fgCalls)}`);
 }
+const punctuatedNote = renderNote(`⛵ fm-toolroll-ci: CI fix merged: ${pullUrl}.`);
+if (!punctuatedNote.rendered.text.includes(`${exactLink}.`)) {
+  throw new Error(`routine PR notification did not preserve sentence punctuation outside its click target: ${JSON.stringify(punctuatedNote.rendered.text)}`);
+}
 const malformedSuffix = renderNote(`⛵ fm-toolroll-ci: ${pullUrl}/files`);
 if (malformedSuffix.rendered.text.includes("\u001b]8;;")) {
   throw new Error("routine notification linked only a prefix of a longer pull-request path");

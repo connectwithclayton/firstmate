@@ -165,7 +165,7 @@ const MIRROR_MESSAGE_CAP = 4000;
 const MERGE_NOTE_BOAT = "⛵";
 const VISIBLE_OUTCOME_ANCHOR = "⚓";
 const VISIBLE_OUTCOME_ENTRY_TYPE = "fm-branch-visible-outcome";
-const GITHUB_PULL_REQUEST_URL = /(?<![A-Za-z0-9])https:\/\/github\.com\/[A-Za-z0-9.-]+\/[A-Za-z0-9_.-]+\/pull\/[1-9][0-9]*(?![A-Za-z0-9_./?#-])/g;
+const GITHUB_PULL_REQUEST_URL = /(?<![A-Za-z0-9])https:\/\/github\.com\/[A-Za-z0-9.-]+\/[A-Za-z0-9_.-]+\/pull\/[1-9][0-9]*(?=\.(?:$|\s|[)\]}'"])|$|[^A-Za-z0-9_./?#-])/g;
 // The processing half of the captain-outcome contract. The visible entry
 // above is the DISPLAY: crash-safe and exact-once. This hidden, typed request
 // is the PROCESSING: it opens the one turn in which main acts on the outcome,

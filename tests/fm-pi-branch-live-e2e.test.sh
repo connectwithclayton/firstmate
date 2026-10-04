@@ -768,7 +768,7 @@ capturedApi.appendEntry("fm-branch-visible-outcome", record);
 const pullUrl = "https://github.com/connectwithclayton/toolroll/pull/148";
 capturedApi.sendMessage({
   customType: "fm-branch-merge",
-  content: `⛵ fm-toolroll-ci: CI fix merged: ${pullUrl}`,
+  content: `⛵ fm-toolroll-ci: CI fix merged: ${pullUrl}.`,
   display: true,
 });
 const longerPullUrl = `${pullUrl}/files`;
@@ -792,6 +792,12 @@ const visibleLine = stripTerminalSequences(linkedLine);
 const linkColumn = visibleWidth(visibleLine.slice(0, visibleLine.indexOf(pullUrl)));
 if (getOsc8LinkAtColumn(linkedLine, linkColumn) !== pullUrl) {
   throw new Error(`Pi's fullscreen click resolver cannot recover the exact routine PR destination: ${JSON.stringify(linkedLine)}`);
+}
+if (!visibleLine.includes(`${pullUrl}.`)) {
+  throw new Error(`active Pi transcript did not preserve sentence punctuation after the routine PR URL: ${JSON.stringify(linkedLine)}`);
+}
+if (getOsc8LinkAtColumn(linkedLine, linkColumn + pullUrl.length) !== undefined) {
+  throw new Error(`Pi's fullscreen click resolver included sentence punctuation in the PR destination: ${JSON.stringify(linkedLine)}`);
 }
 const longerLine = renderedLines.find((line) => stripTerminalSequences(line).includes(longerPullUrl));
 if (!longerLine) throw new Error(`active Pi transcript did not render the longer PR URL: ${rendered}`);
