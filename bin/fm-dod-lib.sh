@@ -632,9 +632,10 @@ fm_dod_named_head_reachable_outside_worktree() {  # <worktree> <project> <mode> 
 
 # 0 when <line> is not a ship done: to gate, when it names the task's recorded
 # PR whose head the forge holds, when it names a Gerrit change whose current
-# patch set carries the worker copy's HEAD tree, or otherwise when its named
-# head - the worker copy's HEAD - is reachable outside that disposable copy. A
-# published-for-review report that names no Gerrit change is refused.
+# patch set carries the worker copy's HEAD tree, or for direct-PR and local-only
+# delivery when its named head - the worker copy's HEAD - is reachable outside
+# that disposable copy. A published-for-review report that names no Gerrit
+# change is refused.
 # There is no free-text SHA scan: a SHA that happens to appear in the note is
 # not the named head. 1 when
 # the claim is refused; stdout then holds a one-line reason and no other
@@ -657,6 +658,15 @@ fm_dod_accept_ship_done() {  # <kind> <mode> <worktree> <project> <line> [<state
     && fm_dod_recorded_pr_on_forge "$state" "$id" "$meta" "$mode" "$url"; then
     return 0
   fi
+  case "$mode" in
+    no-mistakes|'')
+      if [ -n "$url" ] && fm_pr_url_parse "$url" \
+        && { [ "$FM_PR_PROVIDER" = github ] || [ "$FM_PR_PROVIDER" = gitlab ]; }; then
+        printf '%s\n' "the checks-green PR $url is not the task's recorded forge delivery"
+        return 1
+      fi
+      ;;
+  esac
   if [ -z "$wt" ] || [ ! -d "$wt" ]; then
     printf '%s\n' "named head cannot be verified: worktree missing"
     return 1

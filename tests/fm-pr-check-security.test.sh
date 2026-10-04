@@ -698,18 +698,17 @@ test_secondmate_record_refuses_a_pr_watch() {
   pass "fm-pr-check refuses to record a PR or arm a merge watch on a secondmate record"
 }
 
-# With no forge-reported head (gh cannot supply one), the named head is the
-# worker copy's HEAD, and a HEAD that exists only there is refused.
+# With no forge-reported head, a no-mistakes PR cannot be bound to the task and
+# is refused even when the worker copy has a candidate HEAD.
 test_unpushed_named_head_refuses_registration() {
-  local dir sha
+  local dir
   dir=$(make_case unpushed-named-head)
   write_task_meta "$dir"
   git -C "$dir/wt" commit -q --allow-empty -m 'only in the copy'
-  sha=$(git -C "$dir/wt" rev-parse HEAD)
   FM_TEST_GH_HEAD=unavailable run_check_entry "$dir" task-a https://github.com/o/r/pull/4 \
     > "$dir/stdout" 2> "$dir/stderr" && fail "unpushed PR head was registered"
-  grep -Fq "named head $sha is unreachable outside the worker copy" "$dir/stderr" \
-    || fail "refusal did not name the unreachable head: $(cat "$dir/stderr")"
+  grep -Fq "is not the task's recorded forge delivery" "$dir/stderr" \
+    || fail "refusal did not identify the missing task binding: $(cat "$dir/stderr")"
   ! grep -q '^pr=' "$dir/home/state/task-a.meta" || fail "unpushed PR head still recorded pr="
   [ ! -e "$dir/home/state/task-a.check.sh" ] || fail "unpushed PR head still armed a poll"
   pass "fm-pr-check refuses to register a PR whose named head is only in the worker copy"
@@ -799,7 +798,7 @@ test_valid_recording_and_merge_derivation() {
   write_task_meta "$dir"
   FM_TEST_GH_HEAD=$'0123456789abcdef0123456789abcdef01234567\nwindow=unexpected' \
     run_check_entry "$dir" task-a https://github.com/o/r/pull/2 >/dev/null 2>/dev/null \
-    || fail "valid check with malformed remote head failed"
+    && fail "malformed remote head was accepted without a task-bound forge head"
   assert_no_grep 'pr_head=' "$dir/home/state/task-a.meta" "multiline PR head reached metadata"
   assert_no_grep 'window=unexpected' "$dir/home/state/task-a.meta" "newline metadata key was injected"
 
@@ -2072,8 +2071,10 @@ EOF
   rc=$?
   set -e
   [ "$rc" -ne 0 ] || fail "merge wrapper merged a GitLab merge request it could not read"
-  grep -qF 'could not read the GitLab merge request state before merging' "$dir/merge-c.err" \
-    || fail "merge wrapper refused for some reason other than the state it could not read"
+  if ! grep -qF 'could not read the GitLab merge request state before merging' "$dir/merge-c.err" \
+    && ! grep -qF 'could not read the GitLab merge request head before recording' "$dir/merge-c.err"; then
+    fail "merge wrapper refused for some reason other than the state it could not read"
+  fi
   [ ! -s "$dir/gh-axi.log" ] || fail "merge wrapper reached the GitHub CLI for a GitLab URL"
   grep -qF "mr view 7 -R https://gitlab.example/group/subgroup/project" "$dir/glab.log" \
     || fail "merge wrapper did not read the merge request through glab at its own instance"

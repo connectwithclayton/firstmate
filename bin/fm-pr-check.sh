@@ -83,9 +83,15 @@ fm_pr_poll_retirement_recover_one "$STATE" "$ID" "$SCRIPT_DIR/fm-pr-poll.sh" || 
 # The Gerrit poll also needs jq, because Gerrit's status has to be read out of a
 # structured record rather than off a rendered line: the tool's own table prints
 # a change's subject before its status, and a subject is free text.
-if [ "$PROVIDER" = gitlab ] && ! command -v glab >/dev/null 2>&1; then
-  echo "error: watching a GitLab merge request requires glab on PATH" >&2
-  exit 1
+if [ "$PROVIDER" = gitlab ]; then
+  if ! command -v glab >/dev/null 2>&1; then
+    echo "error: watching a GitLab merge request requires glab on PATH" >&2
+    exit 1
+  fi
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "error: watching a GitLab merge request requires jq on PATH" >&2
+    exit 1
+  fi
 fi
 if [ "$PROVIDER" = gerrit ]; then
   if ! command -v gerrit-axi >/dev/null 2>&1; then
@@ -110,10 +116,9 @@ fi
 
 "$FM_ROOT/bin/fm-guard.sh" || true
 
-# pr_head is recorded only when the forge's CLI can supply it. gh exposes the
-# head commit as a selectable field; plain glab exposes it only inside its JSON
-# output, which would need a JSON processor firstmate does not require, so a
-# GitLab task records no pr_head, and neither does a Gerrit task: a Gerrit
+# pr_head is recorded only when the forge's CLI can supply it. GitHub exposes
+# the head commit as a selectable field and GitLab exposes it in JSON. A Gerrit
+# task records no pr_head: a Gerrit
 # revision names one patch set, every amend or rebase is a new patch set, and
 # bin/fm-review-diff.sh has no Gerrit path to resolve a current head with, so a
 # recorded revision would silently become the reviewed content. Both consumers
@@ -132,9 +137,24 @@ if [ "$PROVIDER" = github ] && [ -n "$WT" ] && [ -d "$WT" ] && command -v gh >/d
     PR_HEAD=$REMOTE_HEAD
   fi
 fi
+if [ "$PROVIDER" = gitlab ] && [ -n "$WT" ] && [ -d "$WT" ]; then
+  if REMOTE_HEAD=$(glab mr view "$NUMBER" -R "https://$HOST/$PROJECT_PATH" -F json 2>/dev/null \
+      | jq -r '.sha // empty') \
+    && fm_pr_head_valid "$REMOTE_HEAD"; then
+    PR_HEAD=$REMOTE_HEAD
+  fi
+fi
 
 MODE=$(grep '^mode=' "$META" | tail -1 | cut -d= -f2- || true)
 PROJECT=$(grep '^project=' "$META" | tail -1 | cut -d= -f2- || true)
+case "$PROVIDER:$MODE" in
+  gitlab:no-mistakes|gitlab:)
+    [ -n "$PR_HEAD" ] || {
+      echo "error: could not read the GitLab merge request head before recording its checks-green delivery" >&2
+      exit 1
+    }
+    ;;
+esac
 # The gate is asked about the ready report this task's worker was told to give;
 # on a Gerrit change both publishing modes report the same published line.
 case "$PROVIDER:$MODE" in
