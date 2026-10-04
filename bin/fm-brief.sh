@@ -143,7 +143,6 @@ esac
 # shellcheck source=bin/fm-dod-lib.sh
 . "$SCRIPT_DIR/fm-dod-lib.sh"
 PAUSED_VERB=${FM_CLASSIFY_PAUSED_VERB:-$FM_CLASSIFY_PAUSED_VERB_DEFAULT}
-NEEDS_VALIDATION_VERB=${FM_CLASSIFY_NEEDS_VALIDATION_VERB:-$FM_CLASSIFY_NEEDS_VALIDATION_VERB_DEFAULT}
 IFS= read -r -d '' CREWMATE_PAUSE_INSTRUCTIONS <<EOF || true
    Use \`$PAUSED_VERB: {why}\` - distinct from \`blocked:\` - when deliberately waiting for work or an external condition expected to clear on its own, including your own validation round.
    Before ending your turn with your own background shell or monitor still running, or before waiting on your own pipeline run or a long foreground command, append \`$PAUSED_VERB [at=<epoch>]: {job and completion condition}\` to the status file.
@@ -638,7 +637,7 @@ case "$MODE" in
     SETUP2=""
     ;;
   *)  # no-mistakes
-    STATUS_STATES="working, $NEEDS_VALIDATION_VERB, needs-decision, blocked, $PAUSED_VERB, done, failed"
+    STATUS_STATES="working, needs-validation, needs-decision, blocked, $PAUSED_VERB, done, failed"
     SETUP2="
 2. Run \`no-mistakes doctor\`; if it reports the repo is not initialized here, run \`no-mistakes init\`."
     ;;

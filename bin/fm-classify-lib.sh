@@ -73,9 +73,6 @@ case $- in *u*) _fm_classify_nounset=on ;; *) _fm_classify_nounset=off ;; esac
 [ "$_fm_classify_nounset" = on ] || set +u
 unset _fm_classify_nounset
 
-# The no-mistakes implementation-handoff verb is captain-relevant but non-terminal.
-FM_CLASSIFY_NEEDS_VALIDATION_VERB_DEFAULT='needs-validation'
-
 # Captain-relevant status verbs. A status line carrying any of these is work
 # firstmate must see. Lines without these verbs are no-verb signals: the watcher
 # absorbs them only with positive provably-working evidence, while the daemon uses
@@ -93,7 +90,7 @@ FM_CLASSIFY_NEEDS_VALIDATION_VERB_DEFAULT='needs-validation'
 # declaration cannot disappear behind an earlier recognized line. Continuation
 # prose is not a prefix and stays off that path. Recognized verbs keep the
 # classification below.
-FM_CLASSIFY_CAPTAIN_RE_DEFAULT="done:|${FM_CLASSIFY_NEEDS_VALIDATION_VERB:-$FM_CLASSIFY_NEEDS_VALIDATION_VERB_DEFAULT}:|needs-decision:|blocked:|failed:|PR ready|checks green|ready in branch|merged"
+FM_CLASSIFY_CAPTAIN_RE_DEFAULT='done:|needs-validation:|needs-decision:|blocked:|failed:|PR ready|checks green|ready in branch|merged'
 
 # The declared-wait verb. A crew (or firstmate steering it) appends
 #   paused: <reason>
@@ -179,8 +176,7 @@ _fm_status_verb_recognized() {  # <verb>
     working|needs-decision|blocked|done|failed|note|\
     "${FM_CLASSIFY_PAUSED_VERB:-$FM_CLASSIFY_PAUSED_VERB_DEFAULT}"|\
     "${FM_CLASSIFY_RESOLVE_VERB:-$FM_CLASSIFY_RESOLVE_VERB_DEFAULT}"|\
-    "${FM_CLASSIFY_CAPTAIN_HELD_VERB:-$FM_CLASSIFY_CAPTAIN_HELD_VERB_DEFAULT}"|\
-    "${FM_CLASSIFY_NEEDS_VALIDATION_VERB:-$FM_CLASSIFY_NEEDS_VALIDATION_VERB_DEFAULT}")
+    "${FM_CLASSIFY_CAPTAIN_HELD_VERB:-$FM_CLASSIFY_CAPTAIN_HELD_VERB_DEFAULT}"|needs-validation)
       return 0
       ;;
   esac
@@ -309,7 +305,7 @@ status_is_captain_relevant() {
     working|resolved|captain-held|"${FM_CLASSIFY_PAUSED_VERB:-$FM_CLASSIFY_PAUSED_VERB_DEFAULT}")
       return 1
       ;;
-    "${FM_CLASSIFY_NEEDS_VALIDATION_VERB:-$FM_CLASSIFY_NEEDS_VALIDATION_VERB_DEFAULT}")
+    needs-validation)
       return 0
       ;;
   esac
@@ -331,7 +327,7 @@ status_is_validation_handoff() {  # <status-line>
   local line=$1 verb
   [ -n "$line" ] || return 1
   verb=$(status_line_verb "$line")
-  [ "$verb" = "${FM_CLASSIFY_NEEDS_VALIDATION_VERB:-$FM_CLASSIFY_NEEDS_VALIDATION_VERB_DEFAULT}" ]
+  [ "$verb" = needs-validation ]
 }
 
 # 0 if a status line's leading verb is the pause verb (paused: <reason>). A pure
@@ -2103,11 +2099,10 @@ EOF
 }
 
 _fm_status_open_activities_stream() {
-  local line verb key note resolve held open='' pause needs_validation
+  local line verb key note resolve held open='' pause
   resolve=${FM_CLASSIFY_RESOLVE_VERB:-$FM_CLASSIFY_RESOLVE_VERB_DEFAULT}
   held=${FM_CLASSIFY_CAPTAIN_HELD_VERB:-$FM_CLASSIFY_CAPTAIN_HELD_VERB_DEFAULT}
   pause=${FM_CLASSIFY_PAUSED_VERB:-$FM_CLASSIFY_PAUSED_VERB_DEFAULT}
-  needs_validation=${FM_CLASSIFY_NEEDS_VALIDATION_VERB:-$FM_CLASSIFY_NEEDS_VALIDATION_VERB_DEFAULT}
   while IFS= read -r line || [ -n "$line" ]; do
     # Blank-line guard; see _fm_decision_fold_line for why this is a glob.
     case "$line" in
@@ -2123,7 +2118,7 @@ _fm_status_open_activities_stream() {
         [ -n "$open" ] && open="${open}"$'\n'
         open="${open}${key}"$'\t'"${verb}"$'\t'"${note}"$'\n'
         ;;
-      done|"$needs_validation"|failed|needs-decision|blocked|"$resolve"|"$held")
+      done|needs-validation|failed|needs-decision|blocked|"$resolve"|"$held")
         open=$(_fm_decision_drop "$open" "$key")
         [ -n "$open" ] && open="${open}"$'\n'
         ;;

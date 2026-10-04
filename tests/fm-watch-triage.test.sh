@@ -393,9 +393,8 @@ test_classifier_primitives() {
   legacy_captain_re='done:|needs-decision:|blocked:|failed:|PR ready|checks green|ready in branch|merged'
   FM_CAPTAIN_RE="$legacy_captain_re" status_is_captain_relevant "needs-validation: implementation committed" \
     || fail "a legacy FM_CAPTAIN_RE override suppressed the required validation handoff"
-  FM_CLASSIFY_NEEDS_VALIDATION_VERB=validate-next FM_CAPTAIN_RE="$legacy_captain_re" \
-    status_is_captain_relevant "validate-next: implementation committed" \
-    || fail "the overridden validation handoff verb was suppressed by FM_CAPTAIN_RE"
+  status_is_validation_handoff "validate-next: implementation committed" \
+    && fail "alternate validation handoff verb was recognized"
   printf 'working: start\nneeds-validation [at=123]: implementation committed\n' \
     > "$state/handoff-stamp.status"
   [ "$(last_status_line "$state/handoff-stamp.status")" = \

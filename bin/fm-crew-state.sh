@@ -1194,7 +1194,7 @@ if [ "$HAVE_RUN" = 1 ]; then
   # reports recent activity; the answer is then to steer the crew to reattach
   # without touching the shared daemon.
   case "$LOG_VERB" in
-    "${FM_CLASSIFY_NEEDS_VALIDATION_VERB:-$FM_CLASSIFY_NEEDS_VALIDATION_VERB_DEFAULT}")
+    needs-validation)
       RUN_DETAIL="$RUN_DETAIL${SEP}status-log superseded by validation run"
       ;;
     needs-decision|blocked)
