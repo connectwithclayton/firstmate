@@ -36,6 +36,32 @@ make_fakebin() {  # <dir>
   cat > "$fb/no-mistakes" <<'SH'
 #!/usr/bin/env bash
 [ "${FAKE_NM_SLEEP:-0}" = 1 ] && sleep 30
+if [ "${FAKE_NM_TERMINAL_PR:-0}" = 1 ]; then
+  branch=$(git symbolic-ref --short HEAD 2>/dev/null || true)
+  head=$(git rev-parse HEAD 2>/dev/null || true)
+  number=${branch##*-}
+  outcome=passed
+  [ "$number" != 102 ] || outcome=passed-with-override
+  case "$*" in
+    axi|"axi status"|"axi status --run "*)
+      cat <<EOF
+run:
+  id: "01${number}RUN"
+  branch: $branch
+  status: completed
+  head: "$head"
+  pr: "https://github.com/acme/repo/pull/$number"
+  findings: none
+outcome: $outcome
+EOF
+      exit 0
+      ;;
+    "daemon status")
+      printf 'daemon running (pid 4242)\n'
+      exit 0
+      ;;
+  esac
+fi
 exit 0
 SH
   cat > "$fb/tmux" <<'SH'
@@ -56,6 +82,18 @@ SH
 echo "gh $*" >> "$NET_LOG"
 if [ "${FAKE_GH_FAIL:-0}" = 1 ]; then exit 1; fi
 if [ "${FAKE_GH_SLEEP:-0}" = 1 ]; then sleep 30; fi
+if [ "${FAKE_GH_CREW_STATE:-0}" = 1 ] && [ "${1:-} ${2:-}" = "api graphql" ]; then
+  number=101
+  for arg in "$@"; do
+    case "$arg" in number=*) number=${arg#number=} ;; esac
+  done
+  case "$number" in
+    103) printf 'state=CLOSED\nmerged=false\n' ;;
+    104) printf 'state=MERGED\nmerged=true\n' ;;
+    *) printf 'state=OPEN\nmerged=false\n' ;;
+  esac
+  exit 0
+fi
 if [ "${FAKE_GH_MANY:-0}" = 1 ]; then
   cat <<'JSON'
 [{"number":1,"title":"One","url":"https://github.com/acme/repo/pull/1","headRefName":"fm/one","reviewDecision":"","mergeable":"MERGEABLE","statusCheckRollup":[]},{"number":2,"title":"Two","url":"https://github.com/acme/repo/pull/2","headRefName":"fm/two","reviewDecision":"","mergeable":"MERGEABLE","statusCheckRollup":[]},{"number":3,"title":"Three","url":"https://github.com/acme/repo/pull/3","headRefName":"fm/three","reviewDecision":"","mergeable":"MERGEABLE","statusCheckRollup":[]}]
@@ -937,6 +975,104 @@ EOF
       and .invalidity == {kind:"terminal_in_flight",ids:["done","failed"]}
   ' >/dev/null || fail "terminal in-flight rows discarded the readable home: $canonical"
   pass "nonprogressing child states are explicit and inconsistent terminal rows invalidate"
+}
+
+# A completed protected-validation run is terminal for implementation, not for
+# delivery. When the forge still reports its PR open and the durable backlog
+# carries a structured external hold, the task remains legitimately in flight.
+# A URL alone is insufficient: a closed PR and a terminal task without a PR
+# remain contradictions, while already-landed backlog work remains landed.
+test_open_pr_external_wait_is_not_terminal_in_flight() {
+  local home mate fakebin summary canonical json contribution_input id wt number
+  home=$(make_home open-pr-external-wait)
+  mate="$TMP_ROOT/open-pr-external-wait-home"
+  make_valid_secondmate_home open-pr-wait "$mate"
+  append_secondmate_registry "$home" open-pr-wait "$mate"
+  fm_write_secondmate_meta "$home/state/open-pr-wait.meta" "$mate" "firstmate:fm-open-pr-wait" firstmate
+  cat > "$mate/data/backlog.md" <<'EOF'
+## In flight
+- [ ] open-clean - Open PR after clean validation https://github.com/acme/repo/pull/101 (repo: firstmate) (kind: ship) (hold: upstream merge pending) (hold-kind: external) (since 2026-07-11)
+- [ ] open-override - Open PR after approved validation exception https://github.com/acme/repo/pull/102 (repo: firstmate) (kind: ship) (hold: unrelated checks remain red) (hold-kind: external) (since 2026-07-11)
+- [ ] closed-held - Closed PR with a stale external hold https://github.com/acme/repo/pull/103 (repo: firstmate) (kind: ship) (hold: stale upstream wait) (hold-kind: external) (since 2026-07-11)
+- [ ] merged-held - Merged PR with a stale external hold https://github.com/acme/repo/pull/104 (repo: firstmate) (kind: ship) (hold: stale upstream wait) (hold-kind: external) (since 2026-07-11)
+- [ ] terminal-no-pr - Terminal child without delivery evidence (repo: firstmate) (kind: ship) (since 2026-07-11)
+
+## Queued
+
+## Done
+- [x] landed - Already landed delivery https://github.com/acme/repo/pull/100 (repo: firstmate) (kind: ship) (merged 2026-07-10)
+EOF
+  for id in open-clean open-override closed-held merged-held; do
+    case "$id" in
+      open-clean) number=101 ;;
+      open-override) number=102 ;;
+      closed-held) number=103 ;;
+      merged-held) number=104 ;;
+    esac
+    wt="$mate/projects/$id"
+    fm_git_init_commit "$wt"
+    git -C "$wt" checkout -qb "fm/$id-$number"
+    fm_write_meta "$mate/state/$id.meta" \
+      "window=firstmate:fm-$id" "worktree=$wt" "project=firstmate" \
+      "harness=claude" "kind=ship" "mode=no-mistakes" \
+      "pr=https://github.com/acme/repo/pull/$number"
+    printf 'paused: waiting on external delivery condition\n' > "$mate/state/$id.status"
+  done
+  wt="$mate/projects/terminal-no-pr"
+  fm_git_init_commit "$wt"
+  fm_write_meta "$mate/state/terminal-no-pr.meta" \
+    "window=firstmate:fm-terminal-no-pr" "worktree=$wt" "project=firstmate" \
+    "harness=claude" "kind=ship" "mode=no-mistakes"
+  printf 'done: implementation ended without a delivery\n' > "$mate/state/terminal-no-pr.status"
+
+  fakebin=$(make_fakebin "$home")
+  summary=$(PATH="$fakebin:$PATH" NET_LOG="$home/net.log" \
+    FAKE_NM_TERMINAL_PR=1 FAKE_GH_CREW_STATE=1 \
+    FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$mate" \
+    FM_SNAPSHOT_NOW=2026-07-11T18:00:00Z FM_SNAPSHOT_NOW_EPOCH=1783792800 \
+    "$ROOT/bin/fm-fleet-snapshot.sh" --secondmate-home-summary)
+  printf '%s' "$summary" | jq -e '
+    .valid == false
+      and .state == "externally_held"
+      and .invalidity == {kind:"terminal_in_flight",ids:["closed-held","merged-held","terminal-no-pr"]}
+      and ([.holds[].id] | sort) == ["closed-held","merged-held","open-clean","open-override"]
+      and ([.queued[] | select(.id == "open-clean" or .id == "open-override")
+        | {id,hold_kind,hold_reason}] | length) == 2
+      and ([.endpoints[] | select(.id == "open-clean" or .id == "open-override")
+        | select(.state == "done" and .source == "run-step")] | length) == 2
+      and .contributions.known == 5
+      and ([.landed[].id] | index("landed")) != null
+  ' >/dev/null || fail "open externally held PRs were misclassified as terminal in flight: $summary"
+
+  contribution_input=$(PATH="$fakebin:$PATH" NET_LOG="$home/net.log" \
+    FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$mate" \
+    "$ROOT/bin/fm-fleet-snapshot.sh" --contribution-input)
+  printf '%s' "$contribution_input" | jq -e '
+    ([.tasks[] | select(.id == "open-clean" or .id == "open-override")
+      | select(.merge_authority == "attended" and (.pr.url | test("/pull/(101|102)$")))] | length) == 2
+  ' >/dev/null || fail "open-PR classification changed merge-authority or monitoring identity: $contribution_input"
+
+  mkdir -p "$mate/state"
+  printf '%s\n' "$summary" > "$mate/state/home-summary.json"
+  canonical=$(PATH="$fakebin:$PATH" NET_LOG="$home/net.log" FM_HOME="$home" \
+    FM_SNAPSHOT_NOW=2026-07-11T18:00:00Z FM_SNAPSHOT_NOW_EPOCH=1783792800 \
+    "$ROOT/bin/fm-fleet-snapshot.sh" --json)
+  printf '%s' "$canonical" | jq -e '
+    .secondmate_current.records[] | select(.id == "open-pr-wait")
+    | .current.state == "externally_held"
+      and .invalidity == {kind:"terminal_in_flight",ids:["closed-held","merged-held","terminal-no-pr"]}
+  ' >/dev/null || fail "parent home summary did not preserve the open-PR external wait: $canonical"
+  json=$(PATH="$fakebin:$PATH" NET_LOG="$home/net.log" FM_HOME="$home" \
+    FM_BEARINGS_NOW=2026-07-11T18:00:00Z "$BEARINGS" --json)
+  printf '%s' "$json" | jq -e '
+    (.secondmates | any(.id == "open-pr-wait" and .state == "externally_held"))
+      and (.gates | any(.id == "open-clean" and .owner == "open-pr-wait"))
+      and (.gates | any(.id == "open-override" and .owner == "open-pr-wait"))
+      and (.secondmate_reconcile | any(.id == "open-pr-wait"
+        and .kind == "terminal_in_flight"
+        and .ids == ["closed-held","merged-held","terminal-no-pr"]))
+  ' >/dev/null || fail "Bearings lost the legitimate open-PR wait or true contradiction: $json"
+  pass "open unmerged PRs under external waits stay in flight while true terminal contradictions remain visible"
 }
 
 test_registry_unavailability_and_bounds_are_explicit() {
@@ -3371,6 +3507,7 @@ test_secondmate_and_child_bounds_are_disclosed
 test_parent_decision_is_untrusted_contradiction_only
 test_parent_evidence_reconciles_by_verb_and_key
 test_nonprogressing_child_states_are_explicit
+test_open_pr_external_wait_is_not_terminal_in_flight
 test_registry_unavailability_and_bounds_are_explicit
 test_current_landed_baseline_is_repeatable_and_prior_report_independent
 test_default_is_bounded_and_local_only

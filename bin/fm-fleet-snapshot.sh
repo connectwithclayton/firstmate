@@ -273,6 +273,9 @@ Remote secondmate endpoint liveness is not probed by this command.
 Terminal contradiction evidence uses
 FM_SNAPSHOT_TERMINAL_LINES, FM_SNAPSHOT_TERMINAL_BYTES, and
 FM_SNAPSHOT_TERMINAL_TIMEOUT and never becomes canonical current state.
+An in-flight ship whose completed validation reports its matching PR open is
+not a terminal contradiction while a structured external hold remains; closed,
+merged, unreadable, unmatched, or URL-only PR evidence receives no exemption.
 Parent activity evidence uses FM_SNAPSHOT_PARENT_ACTIVITY_LINES,
 FM_SNAPSHOT_PARENT_ACTIVITY_BYTES, FM_SNAPSHOT_PARENT_ACTIVITIES, and
 FM_SNAPSHOT_PARENT_ACTIVITY_TIMEOUT, with truncation disclosed in the result.
@@ -1027,10 +1030,20 @@ secondmate_home_summary_json() {  # <backlog-json-file> <tasks-json-file>
          | select(.kind != "secondmate")
          | select(.id as $id | [$owned_in_flight[].id] | index($id) | not)
          | {id,state:.current_state.state} ]) as $unowned_children
-    | ([ $owned_in_flight[] as $work
+    | def open_pr_external_wait($work; $task):
+        $work.current_role == "held"
+        and $work.hold_kind == "external"
+        and ($work.pr_url | type) == "string"
+        and $task.kind == "ship"
+        and $task.current_state.state == "done"
+        and $task.current_state.source == "run-step"
+        and $task.pr.url == $work.pr_url
+        and (($task.current_state.detail // "") | test("^run passed: PR open(?: ·|$)"));
+    ([ $owned_in_flight[] as $work
          | $tasks[]
          | select(.kind != "secondmate")
          | select(.id == $work.id and (.current_state.state == "done" or .current_state.state == "failed"))
+         | select(open_pr_external_wait($work; .) | not)
          | {id,state:.current_state.state} ]) as $terminal_in_flight
     | ([if $backlog.present != true then
           {kind:"missing_backlog",ids:[],reason:"missing structured backlog"}
