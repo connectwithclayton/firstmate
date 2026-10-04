@@ -139,6 +139,7 @@ SH
   cat > "$fakebin/gh" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FM_TEST_GH_LOG"
+default_head=$(git rev-parse HEAD 2>/dev/null || printf '%s' 0123456789abcdef0123456789abcdef01234567)
 case "${1:-} ${2:-}" in
   "api graphql")
     printf '%s\n' \
@@ -151,7 +152,7 @@ case "${1:-} ${2:-}" in
   "pr view")
     case " $* " in
       *statusCheckRollup*)
-        printf '%s\n' "{\"state\":\"OPEN\",\"isDraft\":false,\"mergeable\":\"MERGEABLE\",\"mergeStateStatus\":\"CLEAN\",\"headRefOid\":\"${FM_TEST_GH_HEAD:-0123456789abcdef0123456789abcdef01234567}\",\"baseRefName\":\"main\",\"statusCheckRollup\":[{\"__typename\":\"CheckRun\",\"name\":\"ci\",\"status\":\"COMPLETED\",\"conclusion\":\"SUCCESS\"}]}"
+        printf '%s\n' "{\"state\":\"OPEN\",\"isDraft\":false,\"mergeable\":\"MERGEABLE\",\"mergeStateStatus\":\"CLEAN\",\"headRefOid\":\"${FM_TEST_GH_HEAD:-$default_head}\",\"baseRefName\":\"main\",\"statusCheckRollup\":[{\"__typename\":\"CheckRun\",\"name\":\"ci\",\"status\":\"${FM_TEST_GH_CHECK_STATUS:-COMPLETED}\",\"conclusion\":\"${FM_TEST_GH_CHECK_CONCLUSION:-SUCCESS}\"}]}"
         exit 0
         ;;
       *" --json isDraft "*)
@@ -159,7 +160,7 @@ case "${1:-} ${2:-}" in
         exit 0
         ;;
       *headRefOid,reviewDecision*)
-        printf '%s\n' "{\"headRefOid\":\"${FM_TEST_GH_HEAD:-0123456789abcdef0123456789abcdef01234567}\",\"reviewDecision\":\"APPROVED\"}"
+        printf '%s\n' "{\"headRefOid\":\"${FM_TEST_GH_HEAD:-$default_head}\",\"reviewDecision\":\"APPROVED\"}"
         exit 0
         ;;
     esac
@@ -188,12 +189,12 @@ case " $* " in
     printf '%s\n' '{"name":"main","protected":false}'
     ;;
   *" api repos/"*"/pulls/"*)
-    printf '%s\n' "{\"state\":\"open\",\"user\":{\"login\":\"author\"},\"head\":{\"sha\":\"${FM_TEST_GH_HEAD:-0123456789abcdef0123456789abcdef01234567}\"},\"draft\":false,\"mergeable\":true,\"merged_at\":null}"
+    printf '%s\n' "{\"state\":\"open\",\"user\":{\"login\":\"author\"},\"head\":{\"sha\":\"${FM_TEST_GH_HEAD:-$default_head}\"},\"draft\":false,\"mergeable\":true,\"merged_at\":null}"
     ;;
   *" api repos/"*)
     printf '%s\n' '{"permissions":{"push":false}}'
     ;;
-  *" headRefOid "*) printf '%s\n' "${FM_TEST_GH_HEAD:-0123456789abcdef0123456789abcdef01234567}" ;;
+  *" headRefOid "*) printf '%s\n' "${FM_TEST_GH_HEAD:-$default_head}" ;;
   *" state "*)
     [ "${FM_TEST_GH_FAIL:-0}" = 0 ] || exit 1
     [ -z "${FM_TEST_GH_STATE_STARTED:-}" ] || : > "$FM_TEST_GH_STATE_STARTED"
@@ -220,6 +221,12 @@ SH
 printf '%s\n' "$*" >> "$FM_TEST_GLAB_LOG"
 [ "${FM_TEST_GLAB_FAIL:-0}" = 0 ] || exit 1
 [ "${FM_TEST_GLAB_SLEEP:-0}" = 0 ] || sleep "$FM_TEST_GLAB_SLEEP"
+if [ "${FM_TEST_GLAB_JSON:-0}" = 1 ]; then
+  head=${FM_TEST_GLAB_HEAD:-0123456789abcdef0123456789abcdef01234567}
+  printf '{"sha":"%s","head_pipeline":{"sha":"%s","status":"%s"}}\n' \
+    "$head" "${FM_TEST_GLAB_PIPELINE_HEAD:-$head}" "${FM_TEST_GLAB_PIPELINE_STATUS:-success}"
+  exit 0
+fi
 printf 'title:\tfixture merge request\nstate:\t%s\nauthor:\tsomeone\n' "${FM_TEST_GLAB_STATE:-opened}"
 SH
   # gerrit-axi, reproducing the real CLI's contract: one JSON record on stdout
@@ -707,11 +714,69 @@ test_unpushed_named_head_refuses_registration() {
   git -C "$dir/wt" commit -q --allow-empty -m 'only in the copy'
   FM_TEST_GH_HEAD=unavailable run_check_entry "$dir" task-a https://github.com/o/r/pull/4 \
     > "$dir/stdout" 2> "$dir/stderr" && fail "unpushed PR head was registered"
-  grep -Fq "is not the task's recorded forge delivery" "$dir/stderr" \
+  grep -Fq "forge head (unreadable) does not match the attributed no-mistakes head" "$dir/stderr" \
     || fail "refusal did not identify the missing task binding: $(cat "$dir/stderr")"
   ! grep -q '^pr=' "$dir/home/state/task-a.meta" || fail "unpushed PR head still recorded pr="
   [ ! -e "$dir/home/state/task-a.check.sh" ] || fail "unpushed PR head still armed a poll"
   pass "fm-pr-check refuses to register a PR whose named head is only in the worker copy"
+}
+
+test_no_mistakes_registration_requires_attributed_green_head() {
+  local dir expected other url
+  expected=0123456789abcdef0123456789abcdef01234567
+  other=89abcdef0123456789abcdef0123456789abcdef
+
+  dir=$(make_case no-mistakes-github-head-mismatch)
+  write_task_meta "$dir"
+  FM_TEST_GH_HEAD=$other FM_TEST_NM_PIPELINE_HEAD=$expected \
+    run_check_entry "$dir" task-a https://github.com/other/repo/pull/7 \
+    > "$dir/stdout" 2> "$dir/stderr" \
+    && fail "unrelated GitHub PR head was recorded for a no-mistakes task"
+  assert_grep "does not match the attributed no-mistakes head $expected" "$dir/stderr" \
+    "GitHub head mismatch did not identify the attributed pipeline head"
+  assert_no_grep '^pr=' "$dir/home/state/task-a.meta" "mismatched GitHub PR reached task metadata"
+
+  dir=$(make_case no-mistakes-github-red)
+  write_task_meta "$dir"
+  FM_TEST_GH_HEAD=$expected FM_TEST_NM_PIPELINE_HEAD=$expected FM_TEST_GH_CHECK_CONCLUSION=FAILURE \
+    run_check_entry "$dir" task-a https://github.com/o/r/pull/7 \
+    > "$dir/stdout" 2> "$dir/stderr" \
+    && fail "red GitHub checks were recorded as checks green"
+  assert_grep 'does not report green checks' "$dir/stderr" \
+    "red GitHub checks did not refuse registration"
+  assert_no_grep '^pr=' "$dir/home/state/task-a.meta" "red GitHub PR reached task metadata"
+
+  dir=$(make_case no-mistakes-gitlab-head-mismatch)
+  write_task_meta "$dir"
+  url=https://gitlab.example/group/project/-/merge_requests/7
+  FM_TEST_GLAB_JSON=1 FM_TEST_GLAB_HEAD=$other FM_TEST_NM_PIPELINE_HEAD=$expected \
+    run_check_entry "$dir" task-a "$url" > "$dir/stdout" 2> "$dir/stderr" \
+    && fail "unrelated GitLab MR head was recorded for a no-mistakes task"
+  assert_grep "does not match the attributed no-mistakes head $expected" "$dir/stderr" \
+    "GitLab head mismatch did not identify the attributed pipeline head"
+  assert_no_grep '^pr=' "$dir/home/state/task-a.meta" "mismatched GitLab MR reached task metadata"
+
+  dir=$(make_case no-mistakes-gitlab-red)
+  write_task_meta "$dir"
+  FM_TEST_GLAB_JSON=1 FM_TEST_GLAB_HEAD=$expected FM_TEST_NM_PIPELINE_HEAD=$expected \
+    FM_TEST_GLAB_PIPELINE_STATUS=failed \
+    run_check_entry "$dir" task-a "$url" > "$dir/stdout" 2> "$dir/stderr" \
+    && fail "failed GitLab pipeline was recorded as checks green"
+  assert_grep 'does not report green checks' "$dir/stderr" \
+    "failed GitLab pipeline did not refuse registration"
+  assert_no_grep '^pr=' "$dir/home/state/task-a.meta" "failed GitLab MR reached task metadata"
+
+  dir=$(make_case no-mistakes-gitlab-green)
+  write_task_meta "$dir"
+  FM_TEST_GLAB_JSON=1 FM_TEST_GLAB_HEAD=$expected FM_TEST_NM_PIPELINE_HEAD=$expected \
+    run_check_entry "$dir" task-a "$url" > "$dir/stdout" 2> "$dir/stderr" \
+    || fail "attributed GitLab MR with a successful head pipeline was refused"
+  assert_grep "pr=$url" "$dir/home/state/task-a.meta" \
+    "green attributed GitLab MR did not reach task metadata"
+  assert_grep "pr_head=$expected" "$dir/home/state/task-a.meta" \
+    "green attributed GitLab MR did not record its forge head"
+
+  pass "no-mistakes registration binds green forge checks to the attributed run head"
 }
 
 # A direct-PR worker pushes from its own copy: the forge still reports the
@@ -738,7 +803,7 @@ test_valid_recording_and_merge_derivation() {
   local dir expected sidecar count rc
   dir=$(make_case valid-recording)
   write_task_meta "$dir"
-  expected=0123456789abcdef0123456789abcdef01234567
+  expected=$(git -C "$dir/wt" rev-parse HEAD)
   FM_TEST_GH_HEAD=$expected run_check_entry "$dir" task-a https://github.com/my-org/repo_name.with-dots/pull/37 \
     > "$dir/stdout" 2> "$dir/stderr" || fail "valid direct check failed"
 
@@ -768,7 +833,7 @@ test_valid_recording_and_merge_derivation() {
   [ "$count" -eq 1 ] || fail "duplicate pr_head metadata was appended"
 
   : > "$dir/gh.log"
-  run_merge_entry "$dir" task-a https://github.com/my-org/repo_name.with-dots/pull/37 -- --merge \
+  FM_TEST_GH_HEAD=$expected run_merge_entry "$dir" task-a https://github.com/my-org/repo_name.with-dots/pull/37 -- --merge \
     >/dev/null 2>/dev/null || fail "valid merge wrapper failed"
   grep -qxF "pr merge 37 --repo my-org/repo_name.with-dots --match-head-commit $expected --merge" "$dir/gh.log" \
     || fail "merge wrapper did not preserve repository derivation, live head, and method"
@@ -1046,8 +1111,7 @@ sleep 0.3
 SH
     chmod +x "$dir/fakebin/cp"
 
-    FM_TEST_GH_HEAD=0123456789abcdef0123456789abcdef01234567 \
-      run_check_entry "$dir" "$id" https://github.com/o/r/pull/1 > "$dir/direct.out" 2> "$dir/direct.err" &
+    run_check_entry "$dir" "$id" https://github.com/o/r/pull/1 > "$dir/direct.out" 2> "$dir/direct.err" &
     direct_pid=$!
     i=0
     while [ "$i" -lt 100 ] && ! find "$dir/home/state" -name '.fm-pr-poll-check.*' -print | grep . >/dev/null; do
@@ -3468,6 +3532,7 @@ test_invalid_entrypoints_have_zero_side_effects
 test_draft_pull_request_is_not_armed
 test_secondmate_record_refuses_a_pr_watch
 test_unpushed_named_head_refuses_registration
+test_no_mistakes_registration_requires_attributed_green_head
 test_direct_pr_unpushed_commit_refuses_registration
 test_valid_recording_and_merge_derivation
 test_rejected_metacharacter_bytes_are_inert

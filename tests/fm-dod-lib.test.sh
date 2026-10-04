@@ -247,7 +247,7 @@ test_merge_marker_binds_to_the_named_pr() {
   pass "the merged-PR short-circuit applies only to the recorded PR the done line names"
 }
 
-test_forge_recorded_head_is_accepted_without_local_object() {
+test_forge_recorded_attributed_head_is_accepted() {
   local repo wt meta state forge_head
   repo="$TMP_ROOT/forge-repo"
   wt="$TMP_ROOT/forge-wt"
@@ -255,15 +255,13 @@ test_forge_recorded_head_is_accepted_without_local_object() {
   mkdir -p "$state"
   fm_git_worktree "$repo" "$wt" fm/forge
   git -C "$wt" commit -q --allow-empty -m 'worker head, not pushed from this copy'
-  # The pipeline's own commit: on the forge and in the gate repo, never
-  # fetched into the worker clone.
-  forge_head=0123456789abcdef0123456789abcdef01234567
+  forge_head=$(git -C "$wt" rev-parse HEAD)
   meta="$state/forge.meta"
   printf 'kind=ship\nmode=no-mistakes\nworktree=%s\nproject=%s\npr=https://github.com/o/r/pull/5\npr_head=%s\n' \
     "$wt" "$repo" "$forge_head" > "$meta"
   accept_done ship no-mistakes "$wt" "$repo" "done: PR https://github.com/o/r/pull/5 checks green" \
     "$state" forge "$meta" \
-    || fail "forge-recorded pr_head the worker clone never fetched was refused"
+    || fail "forge-recorded attributed GitHub pr_head was refused"
   accept_done ship no-mistakes "$wt" "$repo" "done: PR https://github.com/o/r/pull/6 checks green" \
     "$state" forge "$meta" >/dev/null \
     && fail "pr_head recorded for PR 5 was accepted for a done naming PR 6"
@@ -272,8 +270,8 @@ test_forge_recorded_head_is_accepted_without_local_object() {
   accept_done ship no-mistakes "$wt" "$repo" \
     "done: PR https://gitlab.example.test/o/r/-/merge_requests/5 checks green" \
     "$state" forge "$meta" \
-    || fail "forge-recorded GitLab pr_head the worker clone never fetched was refused"
-  pass "a forge-recorded head for the named GitHub or GitLab PR is accepted"
+    || fail "forge-recorded attributed GitLab pr_head was refused"
+  pass "a forge-recorded attributed head for the named PR is accepted"
 }
 
 # A direct-PR worker pushes from its own copy: a commit made after the PR's
@@ -441,7 +439,7 @@ test_moved_branch_without_named_head_is_refused
 test_free_text_sha_is_not_the_named_head
 test_recorded_merged_pr_is_landed_after_prune
 test_merge_marker_binds_to_the_named_pr
-test_forge_recorded_head_is_accepted_without_local_object
+test_forge_recorded_attributed_head_is_accepted
 test_direct_pr_recorded_head_does_not_cover_unpushed_commit
 test_ci_ready_variants_are_gated
 test_keyed_and_spaced_done_lines_are_gated

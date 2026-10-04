@@ -116,9 +116,10 @@ fi
 
 "$FM_ROOT/bin/fm-guard.sh" || true
 
-# pr_head is recorded only when the forge's CLI can supply it. GitHub exposes
-# the head commit as a selectable field and GitLab exposes it in JSON. A Gerrit
-# task records no pr_head: a Gerrit
+# pr_head is recorded only when the forge's CLI can supply it. GitHub and
+# GitLab no-mistakes registration also binds that head to the passed pipeline
+# head and verifies the forge's checks at that same commit. A Gerrit task
+# records no pr_head: a Gerrit
 # revision names one patch set, every amend or rebase is a new patch set, and
 # bin/fm-review-diff.sh has no Gerrit path to resolve a current head with, so a
 # recorded revision would silently become the reviewed content. Both consumers
@@ -129,28 +130,64 @@ fi
 # recorded and otherwise diffs the local branch, which is the current content.
 # bin/fm-pr-merge.sh reads a GitLab head live at merge time for the same reason,
 # and treats a recorded value that disagrees as stale rather than authoritative.
+MODE=$(grep '^mode=' "$META" | tail -1 | cut -d= -f2- || true)
+PROJECT=$(grep '^project=' "$META" | tail -1 | cut -d= -f2- || true)
 WT=$(grep '^worktree=' "$META" | tail -1 | cut -d= -f2- || true)
 PR_HEAD=
-if [ "$PROVIDER" = github ] && [ -n "$WT" ] && [ -d "$WT" ] && command -v gh >/dev/null 2>&1; then
-  if REMOTE_HEAD=$(cd "$WT" && gh pr view "$URL" --json headRefOid -q .headRefOid 2>/dev/null) \
-    && fm_pr_head_valid "$REMOTE_HEAD"; then
+FORGE_CHECKS_GREEN=0
+if [ "$PROVIDER" = github ] && [ -n "$WT" ] && [ -d "$WT" ] && command -v gh >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+  if [ "${FM_PR_CHECK_MERGE:-0}" = 1 ]; then
+    REMOTE_HEAD=$(cd "$WT" && gh pr view "$URL" --json headRefOid -q .headRefOid 2>/dev/null || true)
+    PR_JSON=
+  else
+    PR_JSON=$(cd "$WT" && gh pr view "$URL" --json headRefOid,statusCheckRollup 2>/dev/null || true)
+    REMOTE_HEAD=$(printf '%s' "$PR_JSON" | jq -r '.headRefOid // empty' 2>/dev/null || true)
+  fi
+  if fm_pr_head_valid "$REMOTE_HEAD"; then
     PR_HEAD=$REMOTE_HEAD
+  fi
+  CHECK_COUNT=$(printf '%s' "$PR_JSON" | jq -r 'if (.statusCheckRollup | type) == "array" then length else 0 end' 2>/dev/null || printf '0')
+  if [ "$CHECK_COUNT" -gt 0 ] 2>/dev/null \
+    && CHECKS_RED=$(fm_pr_github_checks_not_green "$PR_JSON") \
+    && [ -z "$CHECKS_RED" ]; then
+    FORGE_CHECKS_GREEN=1
   fi
 fi
 if [ "$PROVIDER" = gitlab ] && [ -n "$WT" ] && [ -d "$WT" ]; then
-  if REMOTE_HEAD=$(glab mr view "$NUMBER" -R "https://$HOST/$PROJECT_PATH" -F json 2>/dev/null \
-      | jq -r '.sha // empty') \
-    && fm_pr_head_valid "$REMOTE_HEAD"; then
+  MR_JSON=$(GITLAB_HOST="$HOST" glab mr view "$NUMBER" -R "https://$HOST/$PROJECT_PATH" -F json 2>/dev/null || true)
+  REMOTE_HEAD=$(printf '%s' "$MR_JSON" | jq -r '.sha // empty' 2>/dev/null || true)
+  PIPELINE_HEAD=$(printf '%s' "$MR_JSON" | jq -r '.head_pipeline.sha // empty' 2>/dev/null || true)
+  PIPELINE_STATUS=$(printf '%s' "$MR_JSON" | jq -r '.head_pipeline.status // empty' 2>/dev/null || true)
+  if fm_pr_head_valid "$REMOTE_HEAD"; then
     PR_HEAD=$REMOTE_HEAD
   fi
+  if [ -n "$PR_HEAD" ] && [ "$PIPELINE_HEAD" = "$PR_HEAD" ] && [ "$PIPELINE_STATUS" = success ]; then
+    FORGE_CHECKS_GREEN=1
+  fi
 fi
-
-MODE=$(grep '^mode=' "$META" | tail -1 | cut -d= -f2- || true)
-PROJECT=$(grep '^project=' "$META" | tail -1 | cut -d= -f2- || true)
-case "$PROVIDER:$MODE" in
-  gitlab:no-mistakes|gitlab:)
-    [ -n "$PR_HEAD" ] || {
+case "${FM_PR_CHECK_MERGE:-0}:$PROVIDER:$MODE" in
+  0:github:no-mistakes|0:github:|0:gitlab:no-mistakes|0:gitlab:)
+    NM_STATUS=$(fm_nm_run_checked "$WT" 15 axi status 2>/dev/null || true)
+    NM_HEAD=$(fm_nm_branch_sync_nested "$NM_STATUS" pipeline current_head)
+    [ -n "$NM_HEAD" ] || NM_HEAD=$(fm_nm_strip_quotes "$(fm_nm_field "$NM_STATUS" head_sha)")
+    NM_OUTCOME=$(fm_nm_strip_quotes "$(fm_nm_field "$NM_STATUS" outcome)")
+    case "$NM_OUTCOME" in
+      passed|passed-with-skips|passed-with-override) ;;
+      *)
+        echo "error: the attributed no-mistakes run is not passed, so its PR cannot be recorded checks green" >&2
+        exit 1
+        ;;
+    esac
+    if [ "$PROVIDER" = gitlab ] && ! fm_pr_head_valid "$PR_HEAD"; then
       echo "error: could not read the GitLab merge request head before recording its checks-green delivery" >&2
+      exit 1
+    fi
+    if ! fm_pr_head_valid "$PR_HEAD" || [ "$PR_HEAD" != "$NM_HEAD" ]; then
+      echo "error: the forge head ${PR_HEAD:-(unreadable)} does not match the attributed no-mistakes head ${NM_HEAD:-(unreadable)}" >&2
+      exit 1
+    fi
+    [ "$FORGE_CHECKS_GREEN" = 1 ] || {
+      echo "error: the forge does not report green checks at the attributed no-mistakes head $NM_HEAD" >&2
       exit 1
     }
     ;;
@@ -162,7 +199,8 @@ case "$PROVIDER:$MODE" in
   *:no-mistakes|*:) DONE_LINE="done: PR $URL checks green" ;;
   *) DONE_LINE="done: PR $URL" ;;
 esac
-if { [ -z "$PR_HEAD" ] || ! fm_dod_forge_head_is_named_head "$MODE"; } \
+if ! { [ "${FM_PR_CHECK_MERGE:-0}" = 1 ] && [ -z "$PR_HEAD" ]; } \
+  && { [ -z "$PR_HEAD" ] || ! fm_dod_forge_head_is_named_head "$MODE"; } \
   && ! GATE_REASON=$(fm_dod_accept_ship_done "${KIND:-ship}" "$MODE" "$WT" "$PROJECT" "$DONE_LINE" "$STATE" "$ID" "$META"); then
   echo "error: $GATE_REASON" >&2
   exit 1
