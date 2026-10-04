@@ -1012,7 +1012,7 @@ EOF
 # A URL alone is insufficient: a closed PR and a terminal task without a PR
 # remain contradictions, while already-landed backlog work remains landed.
 test_open_pr_external_wait_is_not_terminal_in_flight() {
-  local home mate fakebin summary canonical json contribution_input crew_state id wt number
+  local home mate fakebin summary canonical json contribution_input crew_state id wt number reads_before reads_after
   home=$(make_home open-pr-external-wait)
   mate="$TMP_ROOT/open-pr-external-wait-home"
   make_valid_secondmate_home open-pr-wait "$mate"
@@ -1079,9 +1079,32 @@ EOF
   printf 'done: implementation ended without a delivery\n' > "$mate/state/terminal-no-pr.status"
 
   fakebin=$(make_fakebin "$home")
-  for id in open-clean open-override open-skips checks-passed failed-green cancelled-green monitoring-green; do
+  : > "$home/net.log"
+  for id in checks-passed monitoring-green; do
+    reads_before=$(wc -l < "$home/net.log" | tr -d ' ')
     crew_state=$(PATH="$fakebin:$PATH" NET_LOG="$home/net.log" \
       FAKE_NM_TERMINAL_PR=1 FAKE_GH_CREW_STATE=1 \
+      FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$mate/state" \
+      "$ROOT/bin/fm-crew-state.sh" "$id")
+    reads_after=$(wc -l < "$home/net.log" | tr -d ' ')
+    [ "$reads_after" = "$reads_before" ] \
+      || fail "$id performed a forge read without a disposition request: $crew_state"
+    printf '%s' "$crew_state" | grep -Fq 'checks green:' \
+      || fail "$id lost its checks-green fact without a disposition request: $crew_state"
+  done
+  for id in open-clean open-override open-skips checks-passed failed-green cancelled-green monitoring-green; do
+    case "$id" in
+      open-clean) number=101 ;;
+      open-override) number=102 ;;
+      open-skips) number=105 ;;
+      checks-passed) number=106 ;;
+      failed-green) number=107 ;;
+      cancelled-green) number=108 ;;
+      monitoring-green) number=109 ;;
+    esac
+    crew_state=$(PATH="$fakebin:$PATH" NET_LOG="$home/net.log" \
+      FAKE_NM_TERMINAL_PR=1 FAKE_GH_CREW_STATE=1 \
+      FM_CREW_STATE_EXPECTED_PR="https://github.com/acme/repo/pull/$number" \
       FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$mate/state" \
       "$ROOT/bin/fm-crew-state.sh" "$id")
     printf '%s' "$crew_state" | grep -Fq 'run passed: PR open' \
