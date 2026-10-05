@@ -148,22 +148,22 @@ if [ "$PROVIDER" = github ] && [ -n "$WT" ] && [ -d "$WT" ] && command -v gh >/d
   fi
   CHECK_COUNT=$(printf '%s' "$PR_JSON" | jq -r 'if (.statusCheckRollup | type) == "array" then length else 0 end' 2>/dev/null || printf '0')
   BASE_REF=$(printf '%s' "$PR_JSON" | jq -r '.baseRefName // empty' 2>/dev/null || true)
+  CHECK_RUNS=$(GH_HOST="$HOST" gh api --paginate "repos/$PROJECT_PATH/commits/$PR_HEAD/check-runs" 2>/dev/null || true)
+  CHECK_PRODUCERS=$(printf '%s' "$CHECK_RUNS" | jq -sc --arg head "$PR_HEAD" '
+    [ .[] | if (.check_runs | type) == "array" then .check_runs[] else error("invalid check runs") end
+      | if (.name | type) == "string" and (.app.id | type) == "number" and .head_sha == $head
+          and (.status | type) == "string"
+          and (.conclusion == null or (.conclusion | type) == "string")
+          and (.started_at == null or (.started_at | type) == "string")
+        then . else error("invalid check producer") end ]' 2>/dev/null || printf 'invalid')
   if { [ "$MODE" = no-mistakes ] || [ -z "$MODE" ]; } \
     && [ "$CHECK_COUNT" -gt 0 ] 2>/dev/null \
-    && CHECKS_RED=$(fm_pr_github_checks_not_green "$PR_JSON") \
+    && [ "$CHECK_PRODUCERS" != invalid ] \
+    && CHECKS_RED=$(fm_pr_github_checks_not_green "$PR_JSON" "$CHECK_PRODUCERS") \
     && [ -z "$CHECKS_RED" ] \
     && [ -n "$BASE_REF" ] \
     && GH_HOST="$HOST" fm_pr_github_read_required_contexts "$PROJECT_PATH" "$BASE_REF"; then
-    CHECK_PRODUCERS='[]'
-    if printf '%s' "$FM_PR_GITHUB_REQUIRED" | jq -e 'any(.[]; .app_id != null)' >/dev/null; then
-      CHECK_RUNS=$(GH_HOST="$HOST" gh api --paginate "repos/$PROJECT_PATH/commits/$PR_HEAD/check-runs" 2>/dev/null || true)
-      CHECK_PRODUCERS=$(printf '%s' "$CHECK_RUNS" | jq -sc --arg head "$PR_HEAD" '
-        [ .[] | if (.check_runs | type) == "array" then .check_runs[] else error("invalid check runs") end
-          | if (.name | type) == "string" and (.app.id | type) == "number" and .head_sha == $head
-            then . else error("invalid check producer") end ]' 2>/dev/null || printf 'invalid')
-    fi
-    if [ "$CHECK_PRODUCERS" != invalid ] \
-      && MISSING_CHECKS=$(fm_pr_github_required_checks_missing "$PR_JSON" "$FM_PR_GITHUB_REQUIRED" "$CHECK_PRODUCERS") \
+    if MISSING_CHECKS=$(fm_pr_github_required_checks_missing "$PR_JSON" "$FM_PR_GITHUB_REQUIRED" "$CHECK_PRODUCERS") \
       && [ -z "$MISSING_CHECKS" ]; then
       FORGE_CHECKS_GREEN=1
     fi

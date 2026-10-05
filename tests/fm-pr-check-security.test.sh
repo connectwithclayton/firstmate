@@ -152,7 +152,10 @@ case "${1:-} ${2:-}" in
   "pr view")
     case " $* " in
       *statusCheckRollup*)
-        printf '%s\n' "{\"state\":\"OPEN\",\"isDraft\":false,\"mergeable\":\"MERGEABLE\",\"mergeStateStatus\":\"CLEAN\",\"headRefOid\":\"${FM_TEST_GH_HEAD:-$default_head}\",\"baseRefName\":\"main\",\"statusCheckRollup\":[{\"__typename\":\"CheckRun\",\"name\":\"ci\",\"status\":\"${FM_TEST_GH_CHECK_STATUS:-COMPLETED}\",\"conclusion\":\"${FM_TEST_GH_CHECK_CONCLUSION:-SUCCESS}\"}]}"
+        rollup=${FM_TEST_GH_ROLLUP_JSON:-}
+        [ -n "$rollup" ] \
+          || rollup="[{\"__typename\":\"CheckRun\",\"name\":\"ci\",\"status\":\"${FM_TEST_GH_CHECK_STATUS:-COMPLETED}\",\"conclusion\":\"${FM_TEST_GH_CHECK_CONCLUSION:-SUCCESS}\"}]"
+        printf '%s\n' "{\"state\":\"OPEN\",\"isDraft\":false,\"mergeable\":\"MERGEABLE\",\"mergeStateStatus\":\"CLEAN\",\"headRefOid\":\"${FM_TEST_GH_HEAD:-$default_head}\",\"baseRefName\":\"main\",\"statusCheckRollup\":$rollup}"
         exit 0
         ;;
       *" --json isDraft "*)
@@ -174,8 +177,16 @@ case " $* " in
   *" api repos/"*"/issues/"*"/comments?per_page=100 "*|*" api repos/"*"/pulls/"*"/reviews?per_page=100 "*|*" api repos/"*"/pulls/"*"/comments?per_page=100 "*)
     printf '%s\n' '[[]]'
     ;;
-  *" api repos/"*"/commits/"*"/check-runs?filter=all&per_page=100 "*)
-    printf '%s\n' '[{"check_runs":[]}]'
+  *" api "*"repos/"*"/commits/"*"/check-runs"*)
+    check_status=$(printf '%s' "${FM_TEST_GH_CHECK_STATUS:-COMPLETED}" | tr '[:upper:]' '[:lower:]')
+    check_conclusion=$(printf '%s' "${FM_TEST_GH_CHECK_CONCLUSION:-SUCCESS}" | tr '[:upper:]' '[:lower:]')
+    api_path=${!#}
+    api_head=${api_path#*\/commits\/}
+    api_head=${api_head%%/check-runs*}
+    check_runs=${FM_TEST_GH_CHECK_RUNS_JSON:-}
+    [ -n "$check_runs" ] \
+      || check_runs="{\"check_runs\":[{\"name\":\"ci\",\"app\":{\"id\":42},\"head_sha\":\"$api_head\",\"status\":\"$check_status\",\"conclusion\":\"$check_conclusion\",\"started_at\":null}]}"
+    printf '%s\n' "$check_runs"
     ;;
   *" api repos/"*"/commits/"*"/statuses?per_page=100 "*)
     printf '%s\n' '[[]]'
@@ -760,6 +771,32 @@ test_no_mistakes_registration_requires_attributed_green_head() {
   assert_grep 'does not report green checks' "$dir/stderr" \
     "missing required GitHub check did not refuse registration"
   assert_no_grep '^pr=' "$dir/home/state/task-a.meta" "GitHub PR missing a required check reached task metadata"
+
+  dir=$(make_case no-mistakes-github-app-status)
+  write_task_meta "$dir"
+  FM_TEST_GH_HEAD=$expected FM_TEST_NM_PIPELINE_HEAD=$expected \
+    FM_TEST_GH_ROLLUP_JSON='[{"__typename":"StatusContext","context":"ci","state":"SUCCESS"}]' \
+    FM_TEST_GH_BRANCH_JSON='{"name":"main","protected":true,"protection":{"required_status_checks":{"contexts":[],"checks":[{"context":"ci","app_id":15368}]}}}' \
+    FM_TEST_GH_CHECK_RUNS_JSON='{"check_runs":[]}' \
+    run_check_entry "$dir" task-a https://github.com/o/r/pull/7 \
+    > "$dir/stdout" 2> "$dir/stderr" \
+    && fail "commit status satisfied an app-bound GitHub requirement"
+  assert_grep 'does not report green checks' "$dir/stderr" \
+    "app-bound status context did not refuse registration"
+  assert_no_grep '^pr=' "$dir/home/state/task-a.meta" "app-bound status context reached task metadata"
+
+  dir=$(make_case no-mistakes-github-mixed-producers)
+  write_task_meta "$dir"
+  FM_TEST_GH_HEAD=$expected FM_TEST_NM_PIPELINE_HEAD=$expected \
+    FM_TEST_GH_ROLLUP_JSON='[{"__typename":"CheckRun","name":"ci","status":"COMPLETED","conclusion":"FAILURE","startedAt":"2026-09-01T00:00:00Z"},{"__typename":"CheckRun","name":"ci","status":"COMPLETED","conclusion":"SUCCESS","startedAt":"2026-09-01T00:01:00Z"}]' \
+    FM_TEST_GH_BRANCH_JSON='{"name":"main","protected":true,"protection":{"required_status_checks":{"contexts":[],"checks":[{"context":"ci","app_id":15368}]}}}' \
+    FM_TEST_GH_CHECK_RUNS_JSON="{\"check_runs\":[{\"name\":\"ci\",\"app\":{\"id\":15368},\"head_sha\":\"$expected\",\"status\":\"completed\",\"conclusion\":\"failure\",\"started_at\":\"2026-09-01T00:00:00Z\"},{\"name\":\"ci\",\"app\":{\"id\":42},\"head_sha\":\"$expected\",\"status\":\"completed\",\"conclusion\":\"success\",\"started_at\":\"2026-09-01T00:01:00Z\"}]}" \
+    run_check_entry "$dir" task-a https://github.com/o/r/pull/7 \
+    > "$dir/stdout" 2> "$dir/stderr" \
+    && fail "a different app's newer green run superseded the required app's failure"
+  assert_grep 'does not report green checks' "$dir/stderr" \
+    "mixed producer identities did not refuse registration"
+  assert_no_grep '^pr=' "$dir/home/state/task-a.meta" "mixed producer identities reached task metadata"
 
   dir=$(make_case no-mistakes-gitlab-head-mismatch)
   write_task_meta "$dir"

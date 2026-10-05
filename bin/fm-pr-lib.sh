@@ -266,31 +266,42 @@ fm_pr_head_valid() {
 }
 
 # Every current GitHub check that is not green in <pull-request-json>, one per
-# line. Older failed runs of a named check are superseded only by a newer green
-# run with an unambiguous timestamp.
+# line. Check runs come from <check-runs-json> so their producer identity is
+# available. Older failed runs are superseded only by a newer green run from
+# the same producer with an unambiguous timestamp.
 fm_pr_github_checks_not_green() {
-  local json=$1
-  printf '%s' "$json" | jq -r '
+  local json=$1 producers=$2
+  printf '%s' "$json" | jq -r --argjson producers "$producers" '
     def settled_at:
       if type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")
       then . else null end;
     if (.statusCheckRollup | type) != "array" then error("no check rollup") else . end
-    | [ .statusCheckRollup
+    | .statusCheckRollup as $rollup
+    | if all($rollup[] | select(.__typename == "CheckRun"); .name as $name | any($producers[]; .name == $name))
+      then . else error("check run producer missing") end
+    | [ ($rollup
         | to_entries[]
         | .key as $i
         | .value
-        | if .__typename == "CheckRun" then
-            {
-              kind: "check_run",
-              name: (.name // ""),
-              completed: (.status == "COMPLETED"),
-              ok: (.status == "COMPLETED" and (.conclusion == "SUCCESS" or .conclusion == "NEUTRAL" or .conclusion == "SKIPPED")),
-              at: (.startedAt | settled_at)
-            }
-            | . + {group: (if .name == "" then ["", $i] else [.name, -1] end)}
-          else
+        | select(.__typename != "CheckRun")
+        | if .__typename == "StatusContext" then
             {kind: "status_context", name: (.context // ""), ok: (.state == "SUCCESS")}
+          else error("unknown check rollup entry")
           end
+        ),
+        ($producers
+          | to_entries[]
+          | .key as $i
+          | .value
+          | {
+              kind: "check_run",
+              name: .name,
+              completed: (.status == "completed"),
+              ok: (.status == "completed" and (.conclusion == "success" or .conclusion == "neutral" or .conclusion == "skipped")),
+              at: (.started_at | settled_at),
+              group: (if .name == "" then ["", .app.id, $i] else [.name, .app.id, -1] end)
+            }
+        )
       ]
     | . as $entries
     | (
@@ -401,19 +412,39 @@ fm_pr_github_read_required_contexts() {  # <owner/repo> <base>
   [ -z "$FM_PR_GITHUB_REQUIRED_ERROR" ]
 }
 
-fm_pr_github_required_checks_missing() {  # <pull-request-json> <required-json> <producers-json>
+fm_pr_github_required_checks_missing() {  # <pull-request-json> <required-json> <check-runs-json>
   printf '%s' "$1" | jq -r --argjson required "$2" --argjson producers "$3" '
+    def settled_at:
+      if type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")
+      then . else null end;
+    def current_run_is_green($runs):
+      ($runs | map({
+        completed: (.status == "completed"),
+        ok: (.status == "completed" and (.conclusion == "success" or .conclusion == "neutral" or .conclusion == "skipped")),
+        at: (.started_at | settled_at)
+      })) as $states
+      | ($states | map(select(.ok) | .at | select(. != null)) | max) as $newest_green
+      | ($states | map(select(.ok | not))) as $reds
+      | ($states | length) > 0
+        and ($reds | length) == 0
+        or (
+          $newest_green != null
+          and all($reds[]; .completed and .at != null and .at < $newest_green)
+        );
     if (.statusCheckRollup | type) != "array" then error("no check rollup") else . end
     | .statusCheckRollup as $reported
     | $required
     | map(. as $requirement
-      | select(any($reported[];
+      | select((
           if $requirement.app_id == null then
-            (if .__typename == "CheckRun" then .name else .context end) == $requirement.context
-          elif .__typename == "CheckRun" then
-            .name == $requirement.context
-            and any($producers[]; .name == $requirement.context and .app.id == $requirement.app_id)
-          else .context == $requirement.context end) | not)
+            any($reported[]; (if .__typename == "CheckRun" then .name else .context end) == $requirement.context)
+          else
+            current_run_is_green([
+              $producers[]
+              | select(.name == $requirement.context and .app.id == $requirement.app_id)
+            ])
+          end
+        ) | not)
       | .context) | unique[]
   ' 2>/dev/null || return 1
 }
