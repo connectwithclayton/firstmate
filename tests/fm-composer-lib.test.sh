@@ -468,7 +468,7 @@ test_matrix_herdr_cursor_requires_complete_halfblock_envelope() {
 
 test_matrix_herdr_cursor_accepts_current_bottom_footer() {
   local empty pending stale footer
-  footer=$'  Grok 4.6 High Fast\n  ~/wt · e57df84'
+  footer=$'  Grok 4.6 High Fast                  Run Everything\n  ~/wt · e57df84'
   empty=$'turn_ended/error\n\n  \033[2m→ \033[0;7mP\033[0;2mlan, search, build anything\033[0m\n\n\n'"$footer"
   assert_screen "current borderless Herdr Cursor empty composer" empty \
     "$CAPS_HERDR_CURSOR" "$empty" '' $'cursor\tunknown'
