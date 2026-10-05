@@ -1,0 +1,11 @@
+ok - fm-brief.sh: no-mistakes DOD keeps two-phase handoff/validation semantics and parse-safe prose
+ok - fm-pr-merge supersedes an old cancellation that finishes last
+ok - fm-pr-merge enforces required producer identity and named waivers
+FM_TEST_END 2026-10-05T15:29:40Z tests/fm-pr-merge.test.sh exit=0 duration_ms=666282 gate_skip=false
+all fm-dod-lib tests passed
+ok - no-mistakes registration binds green forge checks to the attributed run head
+FM_TEST_END 2026-10-05T15:36:35Z tests/fm-pr-check-security.test.sh exit=0 duration_ms=409465 gate_skip=false
+ok - coarse run does not probe another branch's ci log or trust an unrecorded PR
+ok - coarse run does not probe another branch's ci log or trust an unrecorded PR
+ok - unpushed ship done: is current-state blocked
+all fm-crew-state tests passed
