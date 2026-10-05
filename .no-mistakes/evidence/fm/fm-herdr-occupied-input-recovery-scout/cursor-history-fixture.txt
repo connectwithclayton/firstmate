@@ -1,0 +1,2 @@
+privacy_safe_stale_footer_result=unknown
+history_only_arrow_result=unknown

@@ -1,0 +1,22 @@
+Scenario: current empty Cursor composer
+Session: fm-lab-occupied-57644-26601 (disposable non-default Herdr lab)
+Harness identity: cursor	idle
+Classifier verdict: unknown
+
+01M44PZZZYWCERH8KAJXMTKCGV on  HEAD [?]
+❯ cursor-agent --trust --yolo --workspace /Users/claytonjohnson/.no-mistakes/worktrees/dad68e
+f8e401/01M44PZZZYWCERH8KAJXMTKCGV
+
+
+  Cursor Agent
+  v2026.10.01-e373342
+  Tip: Use /skills to give Cursor specialized knowledge for tasks.
+
+
+
+
+  → Plan, search, build anything
+
+
+  Grok 4.6 High Fast                                                         Run Everything
+  ~/.no-mistakes/worktrees/dad68ef8e401/01M44PZZZYWCERH8KAJXMTKCGV · a09916f

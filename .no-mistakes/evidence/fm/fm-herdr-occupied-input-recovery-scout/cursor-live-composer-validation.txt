@@ -1,0 +1,49 @@
+session=fm-lab-cursor-live-88909-16141
+cursor_version=2026.10.01-e373342
+herdr_version=herdr 0.9.1
+pane=w1:p1
+{"id":"cli:agent:start","result":{"agent":{"agent":"cursor","agent_session":{"agent":"cursor","kind":"id","source":"herdr:cursor","value":"3972b07d-8c55-4508-b699-4db906b3d127"},"agent_status":"idle","cwd":"/Users/claytonjohnson/.no-mistakes/worktrees/dad68ef8e401/01M44PZZZYWCERH8KAJXMTKCGV","focused":true,"foreground_cwd":"/Users/claytonjohnson/.no-mistakes/worktrees/dad68ef8e401/01M44PZZZYWCERH8KAJXMTKCGV","interactive_ready":true,"name":"cursor-live","pane_id":"w1:p1","revision":1,"state_change_seq":1,"tab_id":"w1:t1","terminal_id":"term_65d0d01ceddcb1","terminal_title":"Cursor Agent","terminal_title_stripped":"Cursor Agent","workspace_id":"w1"},"argv":["cursor-agent","--trust","--workspace","/Users/claytonjohnson/.no-mistakes/worktrees/dad68ef8e401/01M44PZZZYWCERH8KAJXMTKCGV"],"type":"agent_started"}}
+identity={"agent":"cursor","agent_status":"idle","interactive_ready":true,"pane_id":"w1:p1"}
+empty_state=unknown
+empty_capture_begin
+cursor-agent --trust --workspace /Users/claytonjohnson/.no-mistakes/worktrees/dad68ef8e401/01M44PZZZYWCERH8KAJXMTKCGV
+[0m[1m[38;5;6m01M44PZZZYWCERH8KAJXMTKCGV[0m on [0m[1m[38;5;5m HEAD[0m 
+[0m[38;5;5m❯[0m [0m[38;5;2mcursor-agent[0m --trust --workspace [0m[4m/Users/claytonjohnson/.no-mistakes/worktrees/dad68ef8e401/01M44PZZZYWCERH8KAJXMTKCGV[0m
+ 
+
+
+  Cursor Agent
+  [0m[2mv2026.10.01-e373342[0m
+  [0m[2mTip: Use /run-everything to skip all approvals.[0m
+
+
+
+ [0m[48;2;21;21;21m                                                                                                                     [0m
+ [0m[48;2;21;21;21m [0m[2m[48;2;21;21;21m→ [0m[7m[48;2;21;21;21mP[0m[2m[48;2;21;21;21mlan, search, build anything[0m[48;2;21;21;21m                                                                                      [0m
+ [0m[48;2;21;21;21m                                                                                                                     [0m
+
+  [0m[2mGrok 4.6 High Fast[0m
+  [0m[2m~/.no-mistakes/worktrees/dad68ef8e401/01M44PZZZYWCERH8KAJXMTKCGV · b4fb04b[0m
+empty_capture_end
+pending_state=unknown
+pending_capture_begin
+cursor-agent --trust --workspace /Users/claytonjohnson/.no-mistakes/worktrees/dad68ef8e401/01M44PZZZYWCERH8KAJXMTKCGV
+[0m[1m[38;5;6m01M44PZZZYWCERH8KAJXMTKCGV[0m on [0m[1m[38;5;5m HEAD[0m 
+[0m[38;5;5m❯[0m [0m[38;5;2mcursor-agent[0m --trust --workspace [0m[4m/Users/claytonjohnson/.no-mistakes/worktrees/dad68ef8e401/01M44PZZZYWCERH8KAJXMTKCGV[0m
+ 
+
+
+  Cursor Agent
+  [0m[2mv2026.10.01-e373342[0m
+  [0m[2mTip: Use /run-everything to skip all approvals.[0m
+
+
+
+ [0m[48;2;21;21;21m                                                                                                                     [0m
+ [0m[48;2;21;21;21m → validation draft 8472 - do not submit[0m[7m[48;2;21;21;21m [0m[48;2;21;21;21m                                                                            [0m
+ [0m[48;2;21;21;21m                                                                                                                     [0m
+
+  [0m[2mGrok 4.6 High Fast[0m
+  [0m[2m~/.no-mistakes/worktrees/dad68ef8e401/01M44PZZZYWCERH8KAJXMTKCGV · b4fb04b[0m
+pending_capture_end
+{"error":{"code":"invalid_key","message":"unsupported key ctrl-u"},"id":"cli:request"}

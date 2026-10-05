@@ -1,0 +1,5 @@
+STRUCTURAL_FIXTURE=privacy-safe synthetic turn_ended/error and usage-exhausted history
+STALE_COMPLETE_ENVELOPE_WITH_UNCLAIMED_ROWS=unknown
+LOWER_CURRENT_BOTTOM_LIVE_ENVELOPE=empty
+ARROW_WITHOUT_IDENTITY=need-identity
+ARROW_WITH_FAILED_IDENTITY_PROBE=unknown

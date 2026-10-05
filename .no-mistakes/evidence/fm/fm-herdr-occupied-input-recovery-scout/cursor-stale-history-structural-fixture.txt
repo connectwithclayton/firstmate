@@ -1,0 +1,2 @@
+stale_history_verdict=unknown
+current_real_footer_shape_verdict=unknown
