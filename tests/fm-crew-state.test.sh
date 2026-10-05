@@ -2332,10 +2332,11 @@ EOF
 )"
   FM_FAKE_CI_LOGS="CI checks running, waiting for results..."
   local out; out=$(run_crew_state "$d" feat-coarseready)
-  assert_contains "$out" "state: done" "coarse ready status -> done"
+  assert_contains "$out" "state: blocked" "an unrecorded coarse ready PR must not complete the task"
   assert_contains "$out" "source: status-log" "coarse ready status remains status-log sourced"
-  assert_not_contains "$out" "state: working" "coarse ready status must not be suppressed by another branch log"
-  pass "coarse run does not probe another branch's ci log"
+  assert_contains "$out" "not the task's recorded forge delivery" "the coarse ready rejection names the missing delivery registration"
+  assert_not_contains "$out" "state: working" "an unrecorded coarse ready PR must not be suppressed by another branch log"
+  pass "coarse run does not probe another branch's ci log or trust an unrecorded PR"
 }
 
 # A different-branch run with NO matching runs-list row must NOT be
@@ -2362,16 +2363,15 @@ EOF
   pass "another branch's run is ignored and the implementation handoff remains parked"
 }
 
-# A ship done: whose named head lives only in the disposable copy is not
-# current-state done (issue 4768). The worker's claim stays a blocked
-# preservation failure rather than finished-and-safe.
+# A no-mistakes ship done: cannot use an unrecorded PR as delivery evidence,
+# including when its named head lives only in the disposable copy. The worker's
+# claim stays blocked rather than finished-and-safe.
 test_unpushed_ship_done_is_blocked() {
   reset_fakes
-  local d sha out
+  local d out
   d=$(new_case unpushed-done)
   make_repo_on_branch "$d/wt" fm/unpushed
   git -C "$d/wt" commit -q --allow-empty -m 'fix only in the worktree'
-  sha=$(git -C "$d/wt" rev-parse HEAD)
   make_fakebin "$d" >/dev/null
   fm_write_meta "$d/state/unpushed.meta" \
     "window=fm:fm-unpushed" "worktree=$d/wt" "project=$d/wt" \
@@ -2385,8 +2385,8 @@ test_unpushed_ship_done_is_blocked() {
   out=$(run_crew_state "$d" unpushed)
   assert_contains "$out" "state: blocked" "unpushed ship done: must not read as done"
   assert_contains "$out" "source: status-log" "preservation refusal stays status-log sourced"
-  assert_contains "$out" "named head $sha is unreachable outside the worker copy" \
-    "refusal must name the unpushed head"
+  assert_contains "$out" "not the task's recorded forge delivery" \
+    "refusal must name the missing no-mistakes delivery registration"
   assert_not_contains "$out" "state: done" "unpushed ship done: must not remain done"
   pass "unpushed ship done: is current-state blocked"
 }
