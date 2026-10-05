@@ -751,6 +751,27 @@ test_no_mistakes_registration_requires_attributed_green_head() {
     "GitHub head mismatch did not identify the attributed pipeline head"
   assert_no_grep '^pr=' "$dir/home/state/task-a.meta" "mismatched GitHub PR reached task metadata"
 
+  dir=$(make_case no-mistakes-github-empty-rollup)
+  write_task_meta "$dir"
+  FM_TEST_GH_HEAD=$expected FM_TEST_NM_PIPELINE_HEAD=$expected FM_TEST_GH_ROLLUP_JSON='[]' \
+    run_check_entry "$dir" task-a https://github.com/o/r/pull/7 \
+    > "$dir/stdout" 2> "$dir/stderr" \
+    && fail "an empty GitHub check rollup was recorded as checks green"
+  assert_grep 'does not report green checks' "$dir/stderr" \
+    "empty GitHub check rollup did not refuse registration"
+  assert_no_grep '^pr=' "$dir/home/state/task-a.meta" "empty GitHub check rollup reached task metadata"
+
+  dir=$(make_case no-mistakes-github-green)
+  write_task_meta "$dir"
+  FM_TEST_GH_HEAD=$expected FM_TEST_NM_PIPELINE_HEAD=$expected \
+    run_check_entry "$dir" task-a https://github.com/o/r/pull/7 \
+    > "$dir/stdout" 2> "$dir/stderr" \
+    || fail "a nonempty green GitHub check rollup was refused: $(cat "$dir/stderr")"
+  assert_grep 'pr=https://github.com/o/r/pull/7' "$dir/home/state/task-a.meta" \
+    "nonempty green GitHub check rollup did not reach task metadata"
+  assert_grep "pr_head=$expected" "$dir/home/state/task-a.meta" \
+    "nonempty green GitHub check rollup did not record its forge head"
+
   dir=$(make_case no-mistakes-github-red)
   write_task_meta "$dir"
   FM_TEST_GH_HEAD=$expected FM_TEST_NM_PIPELINE_HEAD=$expected FM_TEST_GH_CHECK_CONCLUSION=FAILURE \

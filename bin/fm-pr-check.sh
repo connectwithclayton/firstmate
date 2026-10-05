@@ -146,7 +146,7 @@ if [ "$PROVIDER" = github ] && [ -n "$WT" ] && [ -d "$WT" ] && command -v gh >/d
   if fm_pr_head_valid "$REMOTE_HEAD"; then
     PR_HEAD=$REMOTE_HEAD
   fi
-  CHECK_COUNT=$(printf '%s' "$PR_JSON" | jq -r 'if (.statusCheckRollup | type) == "array" then length else 0 end' 2>/dev/null || printf '0')
+  CHECK_COUNT=$(printf '%s' "$PR_JSON" | jq -r 'if (.statusCheckRollup | type) == "array" then (.statusCheckRollup | length) else 0 end' 2>/dev/null || printf '0')
   BASE_REF=$(printf '%s' "$PR_JSON" | jq -r '.baseRefName // empty' 2>/dev/null || true)
   CHECK_RUNS=$(GH_HOST="$HOST" gh api --paginate "repos/$PROJECT_PATH/commits/$PR_HEAD/check-runs" 2>/dev/null || true)
   CHECK_PRODUCERS=$(printf '%s' "$CHECK_RUNS" | jq -sc --arg head "$PR_HEAD" '
