@@ -3135,6 +3135,7 @@ test_teardown_cannot_race_authority_consumption() {
     || fail "teardown race: could not arm the merge poll"
   queue_merge "$dir" "$url"
   archive_away_record "$dir"
+  retire_contributions_observer "$dir"
   FM_TEST_GH_STATE_STARTED="$dir/poll-started" FM_TEST_GH_STATE=MERGED \
     FM_TEST_GH_SLEEP=0.5 FM_TEST_CHECK_TIMEOUT=3 \
     run_watcher_bounded "$dir/home" "$dir/fakebin" \
