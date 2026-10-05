@@ -415,8 +415,8 @@ fm_pr_github_read_required_contexts() {  # <owner/repo> <base>
 # GitHub's pull-request check rollup can omit a workflow run while that run is
 # still held for approval or otherwise unfinished. The no-mistakes registration
 # gate uses this API result as the second, exact-head workflow signal; a malformed
-# page is an error, while a valid page with no matching workflow is compatible
-# with repositories that do not define these two Firstmate workflows.
+# page is an error, and both Firstmate workflows must be present at the exact
+# head before their latest runs can prove readiness.
 fm_pr_github_workflow_runs_green() {  # <workflow-runs-json> <head>
   local json=$1 head=$2
   [ -n "$json" ] || return 1
@@ -445,7 +445,8 @@ fm_pr_github_workflow_runs_green() {  # <workflow-runs-json> <head>
           (map([.run_number, .run_attempt]) | max) as $latest
           | map(select([.run_number, .run_attempt] == $latest))
         )) as $latest_runs
-    | all($latest_runs[];
+    | ([ $runs[] | .name ] | unique | sort) == ["CI", "Require no-mistakes"]
+      and all($latest_runs[];
         all(.[];
           .status == "completed"
           and (.conclusion == "success" or .conclusion == "neutral" or .conclusion == "skipped")))

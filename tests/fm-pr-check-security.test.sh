@@ -197,7 +197,10 @@ case " $* " in
     if [ -n "${FM_TEST_GH_WORKFLOW_RUNS_JSON:-}" ]; then
       printf '%s\n' "$FM_TEST_GH_WORKFLOW_RUNS_JSON"
     else
-      printf '%s\n' '{"workflow_runs":[]}'
+      api_path=${!#}
+      api_head=${api_path#*head_sha=}
+      api_head=${api_head%%&*}
+      printf '{"workflow_runs":[{"name":"CI","workflow_id":1,"run_number":1,"run_attempt":1,"head_sha":"%s","status":"completed","conclusion":"success"},{"name":"Require no-mistakes","workflow_id":2,"run_number":1,"run_attempt":1,"head_sha":"%s","status":"completed","conclusion":"success"}]}\n' "$api_head" "$api_head"
     fi
     ;;
   *" api --paginate repos/"*"/rules/branches/"*)
@@ -779,6 +782,31 @@ test_no_mistakes_registration_requires_attributed_green_head() {
   assert_grep "pr_head=$expected" "$dir/home/state/task-a.meta" \
     "nonempty green GitHub check rollup did not record its forge head"
 
+  dir=$(make_case no-mistakes-github-workflow-missing)
+  write_task_meta "$dir"
+  FM_TEST_GH_HEAD=$expected FM_TEST_NM_PIPELINE_HEAD=$expected \
+    FM_TEST_GH_WORKFLOW_RUNS_JSON='{"workflow_runs":[]}' \
+    run_check_entry "$dir" task-a https://github.com/o/r/pull/7 \
+    > "$dir/stdout" 2> "$dir/stderr" \
+    && fail "missing exact-head workflows were recorded as checks green"
+  assert_grep 'does not report green checks' "$dir/stderr" \
+    "missing exact-head workflows did not refuse registration"
+  assert_no_grep '^pr=' "$dir/home/state/task-a.meta" \
+    "missing exact-head workflows reached task metadata"
+
+  dir=$(make_case no-mistakes-github-workflow-unfinished)
+  write_task_meta "$dir"
+  review_runs="{\"workflow_runs\":[{\"name\":\"CI\",\"workflow_id\":1,\"run_number\":10,\"run_attempt\":1,\"head_sha\":\"$expected\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"name\":\"Require no-mistakes\",\"workflow_id\":2,\"run_number\":10,\"run_attempt\":1,\"head_sha\":\"$expected\",\"status\":\"in_progress\",\"conclusion\":null}]}"
+  FM_TEST_GH_HEAD=$expected FM_TEST_NM_PIPELINE_HEAD=$expected \
+    FM_TEST_GH_WORKFLOW_RUNS_JSON="$review_runs" \
+    run_check_entry "$dir" task-a https://github.com/o/r/pull/7 \
+    > "$dir/stdout" 2> "$dir/stderr" \
+    && fail "an unfinished exact-head workflow was recorded as checks green"
+  assert_grep 'does not report green checks' "$dir/stderr" \
+    "an unfinished exact-head workflow did not refuse registration"
+  assert_no_grep '^pr=' "$dir/home/state/task-a.meta" \
+    "an unfinished exact-head workflow reached task metadata"
+
   dir=$(make_case no-mistakes-github-workflow-held)
   write_task_meta "$dir"
   review_rollup='[{"__typename":"CheckRun","name":"Greptile Review","status":"COMPLETED","conclusion":"SUCCESS"}]'
@@ -810,7 +838,7 @@ test_no_mistakes_registration_requires_attributed_green_head() {
 
   dir=$(make_case no-mistakes-github-workflow-superseded)
   write_task_meta "$dir"
-  review_runs="{\"workflow_runs\":[{\"name\":\"CI\",\"workflow_id\":1,\"run_number\":10,\"run_attempt\":1,\"head_sha\":\"$expected\",\"status\":\"completed\",\"conclusion\":\"cancelled\"},{\"name\":\"CI\",\"workflow_id\":1,\"run_number\":11,\"run_attempt\":1,\"head_sha\":\"$expected\",\"status\":\"completed\",\"conclusion\":\"success\"}]}"
+  review_runs="{\"workflow_runs\":[{\"name\":\"CI\",\"workflow_id\":1,\"run_number\":10,\"run_attempt\":1,\"head_sha\":\"$expected\",\"status\":\"completed\",\"conclusion\":\"cancelled\"},{\"name\":\"CI\",\"workflow_id\":1,\"run_number\":11,\"run_attempt\":1,\"head_sha\":\"$expected\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"name\":\"Require no-mistakes\",\"workflow_id\":2,\"run_number\":10,\"run_attempt\":1,\"head_sha\":\"$expected\",\"status\":\"completed\",\"conclusion\":\"success\"}]}"
   FM_TEST_GH_HEAD=$expected FM_TEST_NM_PIPELINE_HEAD=$expected \
     FM_TEST_GH_WORKFLOW_RUNS_JSON="$review_runs" \
     run_check_entry "$dir" task-a https://github.com/o/r/pull/7 \
@@ -821,7 +849,7 @@ test_no_mistakes_registration_requires_attributed_green_head() {
 
   dir=$(make_case no-mistakes-github-workflow-ambiguous)
   write_task_meta "$dir"
-  review_runs="{\"workflow_runs\":[{\"name\":\"CI\",\"workflow_id\":1,\"run_number\":10,\"run_attempt\":2,\"head_sha\":\"$expected\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"name\":\"CI\",\"workflow_id\":1,\"run_number\":10,\"run_attempt\":2,\"head_sha\":\"$expected\",\"status\":\"completed\",\"conclusion\":\"failure\"}]}"
+  review_runs="{\"workflow_runs\":[{\"name\":\"CI\",\"workflow_id\":1,\"run_number\":10,\"run_attempt\":2,\"head_sha\":\"$expected\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"name\":\"CI\",\"workflow_id\":1,\"run_number\":10,\"run_attempt\":2,\"head_sha\":\"$expected\",\"status\":\"completed\",\"conclusion\":\"failure\"},{\"name\":\"Require no-mistakes\",\"workflow_id\":2,\"run_number\":10,\"run_attempt\":1,\"head_sha\":\"$expected\",\"status\":\"completed\",\"conclusion\":\"success\"}]}"
   FM_TEST_GH_HEAD=$expected FM_TEST_NM_PIPELINE_HEAD=$expected \
     FM_TEST_GH_WORKFLOW_RUNS_JSON="$review_runs" \
     run_check_entry "$dir" task-a https://github.com/o/r/pull/7 \

@@ -81,14 +81,13 @@ EOF
   fi
 }
 
-write_child() { # <home> <id> <status> [spawn-gen]
-  local home=$1 id=$2 status=$3 spawn_gen=${4:-s${BASHPID:-$$}.$RANDOM} sha pr
+write_child() { # <home> <id> <status> [spawn-gen] [recorded-pr]
+  local home=$1 id=$2 status=$3 spawn_gen=${4:-s${BASHPID:-$$}.$RANDOM} sha
+  local pr=${5:-https://github.com/owner/repo/pull/1}
   mkdir -p "$home/projects/$id"
   git -C "$home/projects/$id" init -q
   git -C "$home/projects/$id" commit -q --allow-empty -m init
   sha=$(git -C "$home/projects/$id" rev-parse HEAD)
-  pr=$(printf '%s\n' "$status" | sed -n 's/.*\(https:\/\/[^ ]*\/pull\/[0-9][0-9]*\).*/\1/p' | tail -1)
-  [ -n "$pr" ] || pr=https://github.com/owner/repo/pull/1
   git -C "$home/projects/$id" update-ref refs/remotes/origin/main "$sha"
   fm_write_meta "$home/state/$id.meta" \
     "window=firstmate:fm-$id" "worktree=$home/projects/$id" "project=$home/projects/$id" \
@@ -244,7 +243,7 @@ test_unpushed_ci_ready_done_is_not_published() {
 test_delivered_ledger_done_skips_git_gate() {
   local real_git
   make_world gate-once; bind_secondmate local
-  write_child "$MATE" child 'done: PR https://github.com/owner/repo/pull/2 checks green'
+  write_child "$MATE" child 'done: PR https://github.com/owner/repo/pull/2 checks green' '' https://github.com/owner/repo/pull/2
   real_git=$(command -v git)
   printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >> %q\nexec %q "$@"\n' \
     "$WORLD/git.log" "$real_git" > "$WORLD/fakebin/git"
@@ -423,7 +422,7 @@ test_secondmate_ledger_delivery_carries_report_and_failure() {
   mkdir -p "$MATE/data/scout"
   printf '# findings\n' > "$MATE/data/scout/report.md"
   write_child "$MATE" boom 'failed: build broke'
-  write_child "$MATE" replaced-pr $'working: old PR https://github.com/owner/repo/pull/11\ndone: PR https://github.com/owner/repo/pull/22 checks green'
+  write_child "$MATE" replaced-pr $'working: old PR https://github.com/owner/repo/pull/11\ndone: PR https://github.com/owner/repo/pull/22 checks green' '' https://github.com/owner/repo/pull/22
   FM_FAKE_CREW_STATE='unknown' run_reconcile "$MATE"
   scout_key=$(reported_outcome_key "$MATE" scout 'done') || fail "scout receipt key missing"
   boom_key=$(reported_outcome_key "$MATE" boom failed) || fail "failed receipt key missing"
@@ -451,9 +450,9 @@ test_pr_field_requires_recorded_pr_or_ready_signal_line() {
   local id ready_key stamped_key placeholder_key scout_key
   make_world pr-provenance; bind_secondmate local
   write_child "$MATE" prose $'working: context in https://example.test/other/repo/pull/33\ndone: cleanup finished'
-  write_child "$MATE" ready 'done: PR https://github.com/owner/repo/pull/44 checks green'
-  write_child "$MATE" stamped 'done [at=1788576000]: PR https://github.com/owner/repo/pull/66 checks green'
-  write_child "$MATE" placeholder 'done [at=<epoch>]: PR https://github.com/owner/repo/pull/77 checks green'
+  write_child "$MATE" ready 'done: PR https://github.com/owner/repo/pull/44 checks green' '' https://github.com/owner/repo/pull/44
+  write_child "$MATE" stamped 'done [at=1788576000]: PR https://github.com/owner/repo/pull/66 checks green' '' https://github.com/owner/repo/pull/66
+  write_child "$MATE" placeholder 'done [at=<epoch>]: PR https://github.com/owner/repo/pull/77 checks green' '' https://github.com/owner/repo/pull/77
   write_child "$MATE" lookout 'done: PR https://github.com/owner/repo/pull/55'
   awk '$0 !~ /^pr=/' "$MATE/state/prose.meta" > "$MATE/state/prose.meta.tmp"
   mv "$MATE/state/prose.meta.tmp" "$MATE/state/prose.meta"
@@ -602,7 +601,7 @@ test_secondmate_remote_route_ledger_delivery() {
 test_pending_ledger_done_is_delivered_after_worktree_removal() {
   local key
   make_world pending-retry; bind_secondmate local
-  write_child "$MATE" child 'done: PR https://github.com/owner/repo/pull/2 checks green'
+  write_child "$MATE" child 'done: PR https://github.com/owner/repo/pull/2 checks green' '' https://github.com/owner/repo/pull/2
   cp "$MATE/.fm-secondmate-parent" "$WORLD/parent-binding"
   printf 'schema=fm-secondmate-parent.v1\nroute=invalid\n' > "$MATE/.fm-secondmate-parent"
   FM_FAKE_CREW_STATE='unknown' run_reconcile "$MATE"
