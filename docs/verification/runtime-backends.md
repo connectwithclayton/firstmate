@@ -2150,7 +2150,7 @@ In TUI mode, its `/supervision-model` model list is drawn with Pi's own `SelectL
 
 Routine PR-link activation was verified on 2026-10-04 against Pi 1.0.1 in its default fullscreen mode, with Apple Terminal as the attached terminal and Pi's automatic hyperlink capability detection left unchanged.
 The extension's real custom-message renderer and a stock `InteractiveMode` rendered `https://github.com/connectwithclayton/toolroll/pull/148`, and Pi's own fullscreen OSC 8 column lookup recovered that exact destination from the URL's visible cells.
-The focused portable case separately rejects a longer `/files` URL instead of linking only its pull-request prefix.
+Both the focused portable case and the live fullscreen guard reject a longer `/files` URL instead of linking only its pull-request prefix.
 
 ```sh
 bin/fm-test-run.sh tests/fm-pi-branch-extension.test.sh
@@ -2160,7 +2160,7 @@ npm exec --yes --package=typescript@5.9.3 -- bash tests/fm-pi-primary-types.test
 
 ```text
 ok - branch owns accepted wakes with a stable prefix and deterministic verdict-driven delivery
-ok - real Pi SDK 1.0.1 renders exact outcome entries and gives a routine PR URL its exact fullscreen click target
+ok - real Pi SDK 1.0.1 gives only a canonical PR URL its exact fullscreen click target
 ok - tracked Pi extensions pass strict no-emit typecheck against Pi 1.0.1
 ```
 
