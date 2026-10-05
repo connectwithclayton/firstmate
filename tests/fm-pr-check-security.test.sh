@@ -2407,6 +2407,7 @@ test_self_merge_and_poll_publish_one_outcome() {
     || fail "merge-outcome-committed: could not arm merge poll"
   run_merge_entry "$dir" task-a "$url" >"$dir/merge.out" 2>"$dir/merge.err" \
     || fail "merge-outcome-committed: merge entrypoint failed: $(cat "$dir/merge.err")"
+  rm -f "$state/contributions.check.sh" "$state/contributions.check-trust"
   add_stop_custom_check "$dir"
   set +e
   FM_TEST_GH_STATE=MERGED run_watcher_bounded "$dir/home" "$dir/fakebin" \
@@ -2452,7 +2453,8 @@ SH
     || fail "merge-outcome-uncommitted: could not drain the first outcome"
   assert_no_grep "$url" "$state/.wake-queue" \
     "merge-outcome-uncommitted: first outcome remained queued after its drain"
-  rm -f "$dir/fakebin/mv" "$state/.last-check"
+  rm -f "$dir/fakebin/mv" "$state/.last-check" \
+    "$state/contributions.check.sh" "$state/contributions.check-trust"
 
   set +e
   FM_TEST_GH_STATE=MERGED run_watcher_bounded "$dir/home" "$dir/fakebin" \
