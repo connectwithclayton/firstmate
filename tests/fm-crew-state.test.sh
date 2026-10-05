@@ -1168,10 +1168,12 @@ test_gate_block_parked_not_superseded() {
 
 test_ci_ready_done_log_beats_monitoring_run() {
   reset_fakes
-  local d; d=$(new_case ci-ready)
+  local d sha; d=$(new_case ci-ready)
   make_repo_on_branch "$d/wt" fm/feat-ci
   make_fakebin "$d" >/dev/null
-  fm_write_meta "$d/state/feat-ci.meta" "window=fm:fm-feat-ci" "worktree=$d/wt" "kind=ship"
+  sha=$(git -C "$d/wt" rev-parse HEAD)
+  fm_write_meta "$d/state/feat-ci.meta" "window=fm:fm-feat-ci" "worktree=$d/wt" "kind=ship" \
+    "pr=https://github.com/o/r/pull/2" "pr_head=$sha"
   printf 'done: PR https://github.com/o/r/pull/2 checks green\n' > "$d/state/feat-ci.status"
   FM_FAKE_AXI_STATUS="$(run_ci_monitoring fm/feat-ci)"
   local out; out=$(run_crew_state "$d" feat-ci)

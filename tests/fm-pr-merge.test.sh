@@ -268,7 +268,13 @@ case "${1:-} ${2:-}" in
           *"/commits/$(cat "$FM_TEST_GH_HEAD")/check-runs"*) ;;
           *) exit 1 ;;
         esac
-        cat "$FM_TEST_GH_RUNS"
+        call_n=$(cat "$FM_TEST_GH_MERGEABLE_CALLS" 2>/dev/null || echo 0)
+        call_state=$(sed -n "${call_n}p" "${FM_TEST_GH_MERGEABLE_SEQUENCE:-/dev/null}" 2>/dev/null || true)
+        if [ "${call_state#* }" = FAILURE ]; then
+          jq '.check_runs[0].conclusion = "failure"' "$FM_TEST_GH_RUNS"
+        else
+          cat "$FM_TEST_GH_RUNS"
+        fi
         exit $?
         ;;
       *" repos/"*"/rules/branches/"*merge_queue*) ;;

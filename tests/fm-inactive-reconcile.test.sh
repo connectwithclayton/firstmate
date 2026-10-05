@@ -82,16 +82,18 @@ EOF
 }
 
 write_child() { # <home> <id> <status> [spawn-gen]
-  local home=$1 id=$2 status=$3 spawn_gen=${4:-s${BASHPID:-$$}.$RANDOM} sha
+  local home=$1 id=$2 status=$3 spawn_gen=${4:-s${BASHPID:-$$}.$RANDOM} sha pr
   mkdir -p "$home/projects/$id"
   git -C "$home/projects/$id" init -q
   git -C "$home/projects/$id" commit -q --allow-empty -m init
   sha=$(git -C "$home/projects/$id" rev-parse HEAD)
+  pr=$(printf '%s\n' "$status" | sed -n 's/.*\(https:\/\/[^ ]*\/pull\/[0-9][0-9]*\).*/\1/p' | tail -1)
+  [ -n "$pr" ] || pr=https://github.com/owner/repo/pull/1
   git -C "$home/projects/$id" update-ref refs/remotes/origin/main "$sha"
   fm_write_meta "$home/state/$id.meta" \
     "window=firstmate:fm-$id" "worktree=$home/projects/$id" "project=$home/projects/$id" \
     'harness=codex' 'kind=ship' 'mode=no-mistakes' 'yolo=off' \
-    "spawn_gen=$spawn_gen" 'pr=https://github.com/owner/repo/pull/1' \
+    "spawn_gen=$spawn_gen" "pr=$pr" \
     "pr_head=$sha"
   printf '%s\n' "$status" > "$home/state/$id.status"
   : > "$home/state/$id.turn-ended"
@@ -237,8 +239,8 @@ test_unpushed_ci_ready_done_is_not_published() {
   pass "unpushed CI-ready ship done: is not published upstream"
 }
 
-# The ledger pass runs on every poll, so a ship done: already delivered does
-# not pay for the git reachability check again.
+# A recorded no-mistakes delivery is accepted from its forge-bound pr_head,
+# without falling back to local ref reachability on either scan.
 test_delivered_ledger_done_skips_git_gate() {
   local real_git
   make_world gate-once; bind_secondmate local
@@ -249,7 +251,7 @@ test_delivered_ledger_done_skips_git_gate() {
   chmod +x "$WORLD/fakebin/git"
   FM_FAKE_CREW_STATE='unknown' run_reconcile "$MATE"
   [ "$(outcome_count "$MATE" reported)" = 1 ] || fail "pushed CI-ready done: was not delivered"
-  [ -s "$WORLD/git.log" ] || fail "first delivery did not test the named head"
+  [ ! -s "$WORLD/git.log" ] || fail "recorded forge delivery fell back to local ref reachability: $(cat "$WORLD/git.log")"
   : > "$WORLD/git.log"
   FM_FAKE_CREW_STATE='unknown' run_reconcile "$MATE"
   [ ! -s "$WORLD/git.log" ] || fail "a poll after delivery re-ran the git gate: $(cat "$WORLD/git.log")"
@@ -422,8 +424,6 @@ test_secondmate_ledger_delivery_carries_report_and_failure() {
   printf '# findings\n' > "$MATE/data/scout/report.md"
   write_child "$MATE" boom 'failed: build broke'
   write_child "$MATE" replaced-pr $'working: old PR https://github.com/owner/repo/pull/11\ndone: PR https://github.com/owner/repo/pull/22 checks green'
-  awk '$0 !~ /^pr=/' "$MATE/state/replaced-pr.meta" > "$MATE/state/replaced-pr.meta.tmp"
-  mv "$MATE/state/replaced-pr.meta.tmp" "$MATE/state/replaced-pr.meta"
   FM_FAKE_CREW_STATE='unknown' run_reconcile "$MATE"
   scout_key=$(reported_outcome_key "$MATE" scout 'done') || fail "scout receipt key missing"
   boom_key=$(reported_outcome_key "$MATE" boom failed) || fail "failed receipt key missing"
@@ -445,8 +445,8 @@ test_secondmate_ledger_delivery_carries_report_and_failure() {
 }
 
 # A PR URL a worker only ever mentioned in prose is never claimed as the
-# task's delivered PR: without a recorded PR, only a terminal line in the
-# ready-signal shape carries one, and a scout never carries one at all.
+# task's delivered PR: no-mistakes terminal lines require the matching recorded
+# forge delivery, and a scout never carries one at all.
 test_pr_field_requires_recorded_pr_or_ready_signal_line() {
   local id ready_key stamped_key placeholder_key scout_key
   make_world pr-provenance; bind_secondmate local
@@ -455,10 +455,8 @@ test_pr_field_requires_recorded_pr_or_ready_signal_line() {
   write_child "$MATE" stamped 'done [at=1788576000]: PR https://github.com/owner/repo/pull/66 checks green'
   write_child "$MATE" placeholder 'done [at=<epoch>]: PR https://github.com/owner/repo/pull/77 checks green'
   write_child "$MATE" lookout 'done: PR https://github.com/owner/repo/pull/55'
-  for id in prose ready stamped placeholder; do
-    awk '$0 !~ /^pr=/' "$MATE/state/$id.meta" > "$MATE/state/$id.meta.tmp"
-    mv "$MATE/state/$id.meta.tmp" "$MATE/state/$id.meta"
-  done
+  awk '$0 !~ /^pr=/' "$MATE/state/prose.meta" > "$MATE/state/prose.meta.tmp"
+  mv "$MATE/state/prose.meta.tmp" "$MATE/state/prose.meta"
   awk '{ sub(/^kind=ship$/, "kind=scout"); print }' "$MATE/state/lookout.meta" \
     > "$MATE/state/lookout.meta.tmp"
   mv "$MATE/state/lookout.meta.tmp" "$MATE/state/lookout.meta"
@@ -480,7 +478,7 @@ test_pr_field_requires_recorded_pr_or_ready_signal_line() {
     || fail "a ready-signal line whose stamp was left unsubstituted lost its PR: $(cat "$MAIN/state/mate.status")"
   sed -E 's/ \[at=[0-9]+\]//' "$MAIN/state/mate.status" | grep -Fxq "done [key=$scout_key]: child lookout done: PR https://github.com/owner/repo/pull/55 mode=no-mistakes yolo=off" \
     || fail "a scout's ready-looking line carried a PR claim: $(cat "$MAIN/state/mate.status")"
-  pass "pr= requires the recorded PR or a ready-signal terminal line, whatever its stamp, and never a scout"
+  pass "pr= requires the recorded forge delivery, whatever its terminal stamp, and never a scout"
 }
 
 # If a terminal ledger line lands while the authoritative state read is in
