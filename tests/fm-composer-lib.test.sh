@@ -207,12 +207,16 @@ test_matrix_claude_arrow_statusline_footer() {
   footer=$'\n  → repo git:(fm/branch)× | Opus 5 | ctx 15%\n  ⏵⏵ bypass permissions on (shift+tab to cycle)'
   screen="$pair$footer"
   assert_screen "claude idle under an arrow statusline on herdr" empty "$CAPS_STYLED" "$screen" '' "$claude_idle"
+  assert_screen "identified claude idle under an arrow statusline on herdr" empty \
+    "$CAPS_HERDR_CURSOR" "$screen" '' "$claude_idle"
   assert_screen "claude idle under an arrow statusline on zellij" empty "$CAPS_STYLED_NOID" "$screen"
   assert_screen "claude idle under an arrow statusline on cmux/orca" empty "$CAPS_PLAIN" "$screen"
   # The protection this must NOT remove: real unsubmitted text in that same
   # composer, under that same statusline, still refuses.
   typed=$'transcript line\n────────────────────────\n❯ fix the login bug\n────────────────────────'"$footer"
   assert_screen "claude typed under an arrow statusline" pending "$CAPS_STYLED" "$typed" '' "$claude_idle"
+  assert_screen "identified claude typed under an arrow statusline on herdr" pending \
+    "$CAPS_HERDR_CURSOR" "$typed" '' "$claude_idle"
   # The live second defect: a stray SGR mouse report left in the composer by
   # a click in the pane is real pending content, not furniture.
   residue=$'transcript line\n────────────────────────\n❯ <65;77;27M\n────────────────────────'"$footer"

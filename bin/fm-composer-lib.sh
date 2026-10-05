@@ -1812,12 +1812,17 @@ EOF
       [ "$identity" != probe-absent ] || { printf 'unknown'; return 0; }
       agent=${identity%%$'\t'*}
       identity_rest=${identity#*$'\t'}
-      version=${identity_rest#*$'\t'}
-      if [ "$agent" != cursor ] \
-         || [ "$identity_rest" = "$version" ] \
-         || [ "$version" != "$FM_COMPOSER_HERDR_CURSOR_LAYOUT_VERSION" ]; then
+      if [ -z "$agent" ] || [ "$identity_rest" = "$identity" ]; then
         printf 'unknown'
         return 0
+      fi
+      if [ "$agent" = cursor ]; then
+        version=${identity_rest#*$'\t'}
+        if [ "$identity_rest" = "$version" ] \
+           || [ "$version" != "$FM_COMPOSER_HERDR_CURSOR_LAYOUT_VERSION" ]; then
+          printf 'unknown'
+          return 0
+        fi
       fi
     fi
   fi
