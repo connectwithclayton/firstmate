@@ -1,0 +1,33 @@
+Live product validation transcript
+
+1. Generated no-mistakes ship brief in a disposable fm-lab home
+
+States: working, needs-validation, needs-decision, blocked, paused, done, failed.
+The implementation handoff is ready only when committed on your branch.
+When implementation is complete and committed, append `needs-validation [at=<epoch>]: {summary}` to the status file and stop.
+Then append `done [at=<epoch>]: PR {url} checks green` and stop. You are finished.
+
+2. Executed shipped status classifier and delivery gate
+
+handoff=needs-validation [at=123]: implementation committed
+validation_handoff=yes
+captain_relevant=yes
+terminal=no
+legacy=done [at=124]: implementation complete
+accepted=no
+reason=no-mistakes done requires a checks-green PR or published Gerrit change; use needs-validation for the implementation handoff
+
+3. Focused registration security regression
+
+ok - no-mistakes registration binds green forge checks to the attributed run head
+
+4. Targeted PR lifecycle suite and isolated reproduction
+
+The complete `bash tests/fm-pr-check-security.test.sh` run failed after:
+ok - a failed upward merge report keeps its poll armed for repair and retry
+not ok - retired poll left task-a.check.sh
+
+The isolated `test_self_merge_and_poll_publish_one_outcome` reproduction failed identically:
+not ok - retired poll left task-a.check.sh
+
+The watcher returned success and emitted only one merge outcome, but the task's authenticated PR poll remained armed instead of retiring.
