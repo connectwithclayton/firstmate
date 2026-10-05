@@ -294,7 +294,7 @@ test_secondmate_multiline_terminal_outcome_is_delivered_once() {
   for terminal in 'done' failed; do
     terminal_line="$terminal: validation finished"
     expected_note='validation finished'
-    if [ "$terminal" = done ]; then
+    if [ "$terminal" = 'done' ]; then
       terminal_line='done: PR https://github.com/owner/repo/pull/1 checks green'
       expected_note='PR https://github.com/owner/repo/pull/1 checks green'
     fi
