@@ -132,6 +132,14 @@ if [ "$PROVIDER" = github ] && [ -n "$WT" ] && [ -d "$WT" ] && command -v gh >/d
     PR_HEAD=$REMOTE_HEAD
   fi
 fi
+# A re-arm may run while the forge head is temporarily unreadable. Preserve
+# the already-validated head only when the existing PR identity is the same.
+if [ -z "$PR_HEAD" ] \
+  && fm_pr_metadata_identity_parse "$META" \
+  && [ "$FM_PR_META_URL" = "$URL" ] \
+  && [ -n "$FM_PR_META_HEAD" ]; then
+  PR_HEAD=$FM_PR_META_HEAD
+fi
 
 MODE=$(grep '^mode=' "$META" | tail -1 | cut -d= -f2- || true)
 PROJECT=$(grep '^project=' "$META" | tail -1 | cut -d= -f2- || true)
