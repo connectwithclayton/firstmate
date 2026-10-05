@@ -1626,7 +1626,7 @@ _fm_composer_cursor_footer_row() {  # <row>
     *' tasks') count=${row% tasks} ;;
     *' task') count=${row% task} ;;
     Cursor*'Run Everything') return 0 ;;
-    '~/'*' · '[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) return 0 ;;
+    \~/*' · '[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) return 0 ;;
     /*' · '[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) return 0 ;;
     *) return 1 ;;
   esac
@@ -1682,13 +1682,13 @@ _fm_composer_cursor_bottom_footer_after_arrow() {  # <plain-screen> <arrow-row>
     fi
     case "$state:$candidate" in
       model:Grok*' High Fast'|model:Grok*' High Fast'*'Run Everything') state=path ;;
-      path:'~/'*' · '[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) state=done ;;
-      path:/*' · '[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) state=done ;;
+      path:\~/*' · '[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) state=complete ;;
+      path:/*' · '[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) state=complete ;;
       *) return 1 ;;
     esac
     row=$((row + 1))
   done
-  [ "$state" = done ]
+  [ "$state" = complete ]
 }
 
 _fm_composer_cursor_live_arrow() {  # <plain-screen> <arrow-row>
