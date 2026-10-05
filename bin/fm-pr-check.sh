@@ -135,6 +135,7 @@ PROJECT=$(grep '^project=' "$META" | tail -1 | cut -d= -f2- || true)
 WT=$(grep '^worktree=' "$META" | tail -1 | cut -d= -f2- || true)
 PR_HEAD=
 FORGE_CHECKS_GREEN=0
+WORKFLOW_RUNS_GREEN=0
 if [ "$PROVIDER" = github ] && [ -n "$WT" ] && [ -d "$WT" ] && command -v gh >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
   if [ "${FM_PR_CHECK_MERGE:-0}" = 1 ]; then
     REMOTE_HEAD=$(cd "$WT" && gh pr view "$URL" --json headRefOid -q .headRefOid 2>/dev/null || true)
@@ -157,10 +158,19 @@ if [ "$PROVIDER" = github ] && [ -n "$WT" ] && [ -d "$WT" ] && command -v gh >/d
           and (.started_at == null or (.started_at | type) == "string")
         then . else error("invalid check producer") end ]' 2>/dev/null || printf 'invalid')
   if { [ "$MODE" = no-mistakes ] || [ -z "$MODE" ]; } \
+    && fm_pr_head_valid "$PR_HEAD"; then
+    WORKFLOW_RUNS=$(GH_HOST="$HOST" gh api --paginate \
+      "repos/$PROJECT_PATH/actions/runs?head=$PR_HEAD&per_page=100" 2>/dev/null || true)
+    if fm_pr_github_workflow_runs_green "$WORKFLOW_RUNS" "$PR_HEAD"; then
+      WORKFLOW_RUNS_GREEN=1
+    fi
+  fi
+  if { [ "$MODE" = no-mistakes ] || [ -z "$MODE" ]; } \
     && [ "$CHECK_COUNT" -gt 0 ] 2>/dev/null \
     && [ "$CHECK_PRODUCERS" != invalid ] \
     && CHECKS_RED=$(fm_pr_github_checks_not_green "$PR_JSON" "$CHECK_PRODUCERS") \
     && [ -z "$CHECKS_RED" ] \
+    && [ "$WORKFLOW_RUNS_GREEN" = 1 ] \
     && [ -n "$BASE_REF" ] \
     && GH_HOST="$HOST" fm_pr_github_read_required_contexts "$PROJECT_PATH" "$BASE_REF"; then
     if MISSING_CHECKS=$(fm_pr_github_required_checks_missing "$PR_JSON" "$FM_PR_GITHUB_REQUIRED" "$CHECK_PRODUCERS") \

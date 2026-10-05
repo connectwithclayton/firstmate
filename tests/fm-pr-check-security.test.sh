@@ -193,6 +193,13 @@ case " $* " in
     ;;
   *" api --paginate repos/"*"/rules/branches/"*merge_queue*)
     ;;
+  *" api --paginate repos/"*"/actions/runs"*)
+    if [ -n "${FM_TEST_GH_WORKFLOW_RUNS_JSON:-}" ]; then
+      printf '%s\n' "$FM_TEST_GH_WORKFLOW_RUNS_JSON"
+    else
+      printf '%s\n' '{"workflow_runs":[]}'
+    fi
+    ;;
   *" api --paginate repos/"*"/rules/branches/"*)
     printf '%s\n' "${FM_TEST_GH_RULES_JSON:-[]}"
     ;;
@@ -772,6 +779,35 @@ test_no_mistakes_registration_requires_attributed_green_head() {
   assert_grep "pr_head=$expected" "$dir/home/state/task-a.meta" \
     "nonempty green GitHub check rollup did not record its forge head"
 
+  dir=$(make_case no-mistakes-github-workflow-held)
+  write_task_meta "$dir"
+  review_rollup='[{"__typename":"CheckRun","name":"Greptile Review","status":"COMPLETED","conclusion":"SUCCESS"}]'
+  review_runs="{\"workflow_runs\":[{\"name\":\"CI\",\"head_sha\":\"$expected\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"name\":\"Require no-mistakes\",\"head_sha\":\"$expected\",\"status\":\"completed\",\"conclusion\":\"action_required\"}]}"
+  FM_TEST_GH_HEAD=$expected FM_TEST_NM_PIPELINE_HEAD=$expected \
+    FM_TEST_GH_ROLLUP_JSON="$review_rollup" \
+    FM_TEST_GH_CHECK_RUNS_JSON="{\"check_runs\":[{\"name\":\"Greptile Review\",\"app\":{\"id\":15368},\"head_sha\":\"$expected\",\"status\":\"completed\",\"conclusion\":\"success\",\"started_at\":\"2026-10-05T00:00:00Z\"}]}" \
+    FM_TEST_GH_WORKFLOW_RUNS_JSON="$review_runs" \
+    run_check_entry "$dir" task-a https://github.com/o/r/pull/7 \
+    > "$dir/stdout" 2> "$dir/stderr" \
+    && fail "an action-required exact-head workflow was recorded as checks green"
+  assert_grep 'does not report green checks' "$dir/stderr" \
+    "an action-required exact-head workflow did not refuse registration"
+  assert_no_grep '^pr=' "$dir/home/state/task-a.meta" \
+    "an action-required exact-head workflow reached task metadata"
+
+  dir=$(make_case no-mistakes-github-workflow-green)
+  write_task_meta "$dir"
+  review_runs="{\"workflow_runs\":[{\"name\":\"CI\",\"head_sha\":\"$expected\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"name\":\"Require no-mistakes\",\"head_sha\":\"$expected\",\"status\":\"completed\",\"conclusion\":\"success\"}]}"
+  FM_TEST_GH_HEAD=$expected FM_TEST_NM_PIPELINE_HEAD=$expected \
+    FM_TEST_GH_ROLLUP_JSON="$review_rollup" \
+    FM_TEST_GH_CHECK_RUNS_JSON="{\"check_runs\":[{\"name\":\"Greptile Review\",\"app\":{\"id\":15368},\"head_sha\":\"$expected\",\"status\":\"completed\",\"conclusion\":\"success\",\"started_at\":\"2026-10-05T00:00:00Z\"}]}" \
+    FM_TEST_GH_WORKFLOW_RUNS_JSON="$review_runs" \
+    run_check_entry "$dir" task-a https://github.com/o/r/pull/7 \
+    > "$dir/stdout" 2> "$dir/stderr" \
+    || fail "green exact-head workflows were refused: $(cat "$dir/stderr")"
+  assert_grep 'pr=https://github.com/o/r/pull/7' "$dir/home/state/task-a.meta" \
+    "green exact-head workflows did not reach task metadata"
+
   dir=$(make_case no-mistakes-github-red)
   write_task_meta "$dir"
   FM_TEST_GH_HEAD=$expected FM_TEST_NM_PIPELINE_HEAD=$expected FM_TEST_GH_CHECK_CONCLUSION=FAILURE \
@@ -916,6 +952,10 @@ test_valid_recording_and_merge_derivation() {
   assert_grep 'https://github.com/my-org/repo_name.with-dots/pull/37' "$dir/home/state/.wake-queue" \
     "a merge this home performed left no durable outcome"
   ack_watcher_cycle "$dir/home/state" || fail "merge outcome acknowledgement failed"
+  # Isolate the PR-poll retirement assertion from the unrelated contributions
+  # observer, whose unavailable forge response would otherwise end this watcher
+  # cycle before the merged poll runs.
+  rm -f "$dir/home/state/contributions.check.sh" "$dir/home/state/contributions.check-trust"
   # With the merge already reported, the poll's own detection is a duplicate the
   # watcher absorbs, so this cycle needs its own reason to end.
   add_stop_custom_check "$dir"

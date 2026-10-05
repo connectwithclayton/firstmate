@@ -412,6 +412,36 @@ fm_pr_github_read_required_contexts() {  # <owner/repo> <base>
   [ -z "$FM_PR_GITHUB_REQUIRED_ERROR" ]
 }
 
+# GitHub's pull-request check rollup can omit a workflow run while that run is
+# still held for approval or otherwise unfinished. The no-mistakes registration
+# gate uses this API result as the second, exact-head workflow signal; a malformed
+# page is an error, while a valid page with no matching workflow is compatible
+# with repositories that do not define these two Firstmate workflows.
+fm_pr_github_workflow_runs_green() {  # <workflow-runs-json> <head>
+  local json=$1 head=$2
+  [ -n "$json" ] || return 1
+  printf '%s' "$json" | jq -s -e --arg head "$head" '
+    [ .[]
+      | if type == "object" and (.workflow_runs | type) == "array"
+        then .workflow_runs[]
+        else error("invalid workflow runs page")
+        end
+      | if (.name | type) == "string"
+           and (.head_sha | type) == "string"
+           and (.status | type) == "string"
+           and (.conclusion == null or (.conclusion | type) == "string")
+        then .
+        else error("invalid workflow run")
+        end
+      | select(.head_sha == $head)
+      | select(.name == "CI" or .name == "Require no-mistakes")
+    ] as $runs
+    | all($runs[];
+        .status == "completed"
+        and (.conclusion == "success" or .conclusion == "neutral" or .conclusion == "skipped"))
+  ' >/dev/null 2>&1
+}
+
 fm_pr_github_required_checks_missing() {  # <pull-request-json> <required-json> <check-runs-json>
   printf '%s' "$1" | jq -r --argjson required "$2" --argjson producers "$3" '
     def settled_at:
