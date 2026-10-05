@@ -740,7 +740,8 @@ fm_composer_classify_content() {  # <bordered> <content> [idle_re] [idle_case] [
 #   [cursor_row] zero-based row index of the cursor within <screen>, only
 #                meaningful when caps carry cursor=1.
 #   [identity]   "<agent>\t<status>" from the backend's native identity probe,
-#                or `probe-absent` when the probe found no live identity; only
+#                with a third version field for Herdr Cursor layout proof, or
+#                `probe-absent` when the probe found no live identity; only
 #                meaningful when caps carry identity=1.
 # Prints exactly one verdict: empty | pending | pending-unproven | unknown,
 # or the internal sentinel `need-identity` when caps declare identity=1, no
@@ -1772,9 +1773,13 @@ EOF
   printf '%s\n' "$joined" | LC_ALL=C awk '{$1=$1; printf "%s", $0}'
 }
 
+# The only Cursor-rendered layouts accepted on the Herdr-specific path are
+# those verified against this exact release. Any other release stays unknown.
+FM_COMPOSER_HERDR_CURSOR_LAYOUT_VERSION=2026.10.01-e373342
+
 fm_composer_classify_screen() {  # <caps> <screen> [cursor_row] [identity]
   local caps=$1 screen=$2 cy=${3:-} identity=${4:-}
-  local styled=0 cursor=0 has_identity=0 herdr=0 kv plain glyph agent
+  local styled=0 cursor=0 has_identity=0 herdr=0 kv plain glyph agent identity_rest version
   while IFS= read -r kv; do
     case "$kv" in
       styled=1) styled=1 ;;
@@ -1805,6 +1810,15 @@ EOF
         return 0
       fi
       [ "$identity" != probe-absent ] || { printf 'unknown'; return 0; }
+      agent=${identity%%$'\t'*}
+      identity_rest=${identity#*$'\t'}
+      version=${identity_rest#*$'\t'}
+      if [ "$agent" != cursor ] \
+         || [ "$identity_rest" = "$version" ] \
+         || [ "$version" != "$FM_COMPOSER_HERDR_CURSOR_LAYOUT_VERSION" ]; then
+        printf 'unknown'
+        return 0
+      fi
     fi
   fi
   if [ -n "$cy" ]; then
