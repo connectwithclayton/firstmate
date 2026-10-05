@@ -193,7 +193,7 @@ case " $* " in
     ;;
   *" api --paginate repos/"*"/rules/branches/"*merge_queue*)
     ;;
-  *" api --paginate repos/"*"/actions/runs"*)
+  *" api --paginate repos/"*"/actions/runs?head_sha="*"&per_page=100 "*)
     if [ -n "${FM_TEST_GH_WORKFLOW_RUNS_JSON:-}" ]; then
       printf '%s\n' "$FM_TEST_GH_WORKFLOW_RUNS_JSON"
     else

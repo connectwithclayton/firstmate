@@ -160,7 +160,7 @@ if [ "$PROVIDER" = github ] && [ -n "$WT" ] && [ -d "$WT" ] && command -v gh >/d
   if { [ "$MODE" = no-mistakes ] || [ -z "$MODE" ]; } \
     && fm_pr_head_valid "$PR_HEAD"; then
     WORKFLOW_RUNS=$(GH_HOST="$HOST" gh api --paginate \
-      "repos/$PROJECT_PATH/actions/runs?head=$PR_HEAD&per_page=100" 2>/dev/null || true)
+      "repos/$PROJECT_PATH/actions/runs?head_sha=$PR_HEAD&per_page=100" 2>/dev/null || true)
     if fm_pr_github_workflow_runs_green "$WORKFLOW_RUNS" "$PR_HEAD"; then
       WORKFLOW_RUNS_GREEN=1
     fi
