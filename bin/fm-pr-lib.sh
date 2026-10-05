@@ -36,7 +36,6 @@ FM_PR_META_URL=
 FM_PR_META_HOST=
 FM_PR_META_PATH=
 FM_PR_META_NUMBER=
-FM_PR_META_HEAD=
 FM_PR_REG_ID=
 FM_PR_REG_PROVIDER=
 FM_PR_REG_URL=
@@ -382,7 +381,6 @@ fm_pr_metadata_identity_parse() {
   FM_PR_META_HOST=
   FM_PR_META_PATH=
   FM_PR_META_NUMBER=
-  FM_PR_META_HEAD=
   [ -f "$file" ] && [ ! -L "$file" ] || return 1
   [ "$(fm_pr_file_link_count "$file")" = 1 ] || return 1
   while IFS= read -r line || [ -n "$line" ]; do
@@ -403,11 +401,7 @@ fm_pr_metadata_identity_parse() {
         pr_head_count=$((pr_head_count + 1))
         if [ "$pr_head_count" -eq 1 ]; then
           value=${line#pr_head=}
-          if fm_pr_head_valid "$value"; then
-            FM_PR_META_HEAD=$value
-          else
-            invalid=1
-          fi
+          fm_pr_head_valid "$value" || invalid=1
         fi
         ;;
       *)

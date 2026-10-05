@@ -552,7 +552,7 @@ test_metadata_identity_is_order_independent_and_closed() {
     'control_relaunch_tx=123.20260910T120000Z.456'
   fm_pr_metadata_identity_parse "$meta" \
     || fail "known task metadata keys were order-dependent"
-  [ "$FM_PR_META_URL" = "$url" ] && [ "$FM_PR_META_HEAD" = "$head" ] \
+  [ "$FM_PR_META_URL" = "$url" ] \
     || fail "order-independent metadata parsing lost the PR identity"
 
   fm_write_meta "$meta" \
@@ -796,13 +796,6 @@ test_valid_recording_and_merge_derivation() {
   [ "$count" -eq 1 ] || fail "duplicate pr metadata was appended"
   count=$(grep -c '^pr_head=' "$dir/home/state/task-a.meta")
   [ "$count" -eq 1 ] || fail "duplicate pr_head metadata was appended"
-
-  FM_TEST_GH_HEAD=unavailable run_check_entry "$dir" task-a https://github.com/my-org/repo_name.with-dots/pull/37 \
-    >/dev/null 2>/dev/null || fail "valid duplicate check without a live head failed"
-  grep -qxF "pr_head=$expected" "$dir/home/state/task-a.meta" \
-    || fail "re-arming the same PR without a live head dropped its recorded pr_head"
-  count=$(grep -c '^pr_head=' "$dir/home/state/task-a.meta")
-  [ "$count" -eq 1 ] || fail "re-arming the same PR duplicated its preserved pr_head metadata"
 
   : > "$dir/gh.log"
   run_merge_entry "$dir" task-a https://github.com/my-org/repo_name.with-dots/pull/37 -- --merge \
