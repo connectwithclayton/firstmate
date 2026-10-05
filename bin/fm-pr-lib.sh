@@ -427,6 +427,9 @@ fm_pr_github_workflow_runs_green() {  # <workflow-runs-json> <head>
         else error("invalid workflow runs page")
         end
       | if (.name | type) == "string"
+           and (.workflow_id | type) == "number"
+           and (.run_number | type) == "number"
+           and (.run_attempt | type) == "number"
            and (.head_sha | type) == "string"
            and (.status | type) == "string"
            and (.conclusion == null or (.conclusion | type) == "string")
@@ -436,9 +439,16 @@ fm_pr_github_workflow_runs_green() {  # <workflow-runs-json> <head>
       | select(.head_sha == $head)
       | select(.name == "CI" or .name == "Require no-mistakes")
     ] as $runs
-    | all($runs[];
-        .status == "completed"
-        and (.conclusion == "success" or .conclusion == "neutral" or .conclusion == "skipped"))
+    | ($runs
+      | group_by(.workflow_id)
+      | map(
+          (map([.run_number, .run_attempt]) | max) as $latest
+          | map(select([.run_number, .run_attempt] == $latest))
+        )) as $latest_runs
+    | all($latest_runs[];
+        all(.[];
+          .status == "completed"
+          and (.conclusion == "success" or .conclusion == "neutral" or .conclusion == "skipped")))
   ' >/dev/null 2>&1
 }
 

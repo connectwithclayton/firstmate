@@ -782,7 +782,7 @@ test_no_mistakes_registration_requires_attributed_green_head() {
   dir=$(make_case no-mistakes-github-workflow-held)
   write_task_meta "$dir"
   review_rollup='[{"__typename":"CheckRun","name":"Greptile Review","status":"COMPLETED","conclusion":"SUCCESS"}]'
-  review_runs="{\"workflow_runs\":[{\"name\":\"CI\",\"head_sha\":\"$expected\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"name\":\"Require no-mistakes\",\"head_sha\":\"$expected\",\"status\":\"completed\",\"conclusion\":\"action_required\"}]}"
+  review_runs="{\"workflow_runs\":[{\"name\":\"CI\",\"workflow_id\":1,\"run_number\":10,\"run_attempt\":1,\"head_sha\":\"$expected\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"name\":\"Require no-mistakes\",\"workflow_id\":2,\"run_number\":10,\"run_attempt\":1,\"head_sha\":\"$expected\",\"status\":\"completed\",\"conclusion\":\"action_required\"}]}"
   FM_TEST_GH_HEAD=$expected FM_TEST_NM_PIPELINE_HEAD=$expected \
     FM_TEST_GH_ROLLUP_JSON="$review_rollup" \
     FM_TEST_GH_CHECK_RUNS_JSON="{\"check_runs\":[{\"name\":\"Greptile Review\",\"app\":{\"id\":15368},\"head_sha\":\"$expected\",\"status\":\"completed\",\"conclusion\":\"success\",\"started_at\":\"2026-10-05T00:00:00Z\"}]}" \
@@ -797,7 +797,7 @@ test_no_mistakes_registration_requires_attributed_green_head() {
 
   dir=$(make_case no-mistakes-github-workflow-green)
   write_task_meta "$dir"
-  review_runs="{\"workflow_runs\":[{\"name\":\"CI\",\"head_sha\":\"$expected\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"name\":\"Require no-mistakes\",\"head_sha\":\"$expected\",\"status\":\"completed\",\"conclusion\":\"success\"}]}"
+  review_runs="{\"workflow_runs\":[{\"name\":\"CI\",\"workflow_id\":1,\"run_number\":10,\"run_attempt\":1,\"head_sha\":\"$expected\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"name\":\"Require no-mistakes\",\"workflow_id\":2,\"run_number\":10,\"run_attempt\":1,\"head_sha\":\"$expected\",\"status\":\"completed\",\"conclusion\":\"success\"}]}"
   FM_TEST_GH_HEAD=$expected FM_TEST_NM_PIPELINE_HEAD=$expected \
     FM_TEST_GH_ROLLUP_JSON="$review_rollup" \
     FM_TEST_GH_CHECK_RUNS_JSON="{\"check_runs\":[{\"name\":\"Greptile Review\",\"app\":{\"id\":15368},\"head_sha\":\"$expected\",\"status\":\"completed\",\"conclusion\":\"success\",\"started_at\":\"2026-10-05T00:00:00Z\"}]}" \
@@ -807,6 +807,30 @@ test_no_mistakes_registration_requires_attributed_green_head() {
     || fail "green exact-head workflows were refused: $(cat "$dir/stderr")"
   assert_grep 'pr=https://github.com/o/r/pull/7' "$dir/home/state/task-a.meta" \
     "green exact-head workflows did not reach task metadata"
+
+  dir=$(make_case no-mistakes-github-workflow-superseded)
+  write_task_meta "$dir"
+  review_runs="{\"workflow_runs\":[{\"name\":\"CI\",\"workflow_id\":1,\"run_number\":10,\"run_attempt\":1,\"head_sha\":\"$expected\",\"status\":\"completed\",\"conclusion\":\"cancelled\"},{\"name\":\"CI\",\"workflow_id\":1,\"run_number\":11,\"run_attempt\":1,\"head_sha\":\"$expected\",\"status\":\"completed\",\"conclusion\":\"success\"}]}"
+  FM_TEST_GH_HEAD=$expected FM_TEST_NM_PIPELINE_HEAD=$expected \
+    FM_TEST_GH_WORKFLOW_RUNS_JSON="$review_runs" \
+    run_check_entry "$dir" task-a https://github.com/o/r/pull/7 \
+    > "$dir/stdout" 2> "$dir/stderr" \
+    || fail "a superseded cancelled workflow blocked its green replacement: $(cat "$dir/stderr")"
+  assert_grep 'pr=https://github.com/o/r/pull/7' "$dir/home/state/task-a.meta" \
+    "latest green workflow attempt did not reach task metadata"
+
+  dir=$(make_case no-mistakes-github-workflow-ambiguous)
+  write_task_meta "$dir"
+  review_runs="{\"workflow_runs\":[{\"name\":\"CI\",\"workflow_id\":1,\"run_number\":10,\"run_attempt\":2,\"head_sha\":\"$expected\",\"status\":\"completed\",\"conclusion\":\"success\"},{\"name\":\"CI\",\"workflow_id\":1,\"run_number\":10,\"run_attempt\":2,\"head_sha\":\"$expected\",\"status\":\"completed\",\"conclusion\":\"failure\"}]}"
+  FM_TEST_GH_HEAD=$expected FM_TEST_NM_PIPELINE_HEAD=$expected \
+    FM_TEST_GH_WORKFLOW_RUNS_JSON="$review_runs" \
+    run_check_entry "$dir" task-a https://github.com/o/r/pull/7 \
+    > "$dir/stdout" 2> "$dir/stderr" \
+    && fail "ambiguous latest workflow records were accepted as green"
+  assert_grep 'does not report green checks' "$dir/stderr" \
+    "ambiguous latest workflow records did not refuse registration"
+  assert_no_grep '^pr=' "$dir/home/state/task-a.meta" \
+    "ambiguous latest workflow records reached task metadata"
 
   dir=$(make_case no-mistakes-github-red)
   write_task_meta "$dir"
