@@ -466,6 +466,23 @@ test_matrix_herdr_cursor_requires_complete_halfblock_envelope() {
   pass "matrix: Herdr Cursor arrows require a complete matching half-block envelope"
 }
 
+test_matrix_herdr_cursor_accepts_current_bottom_footer() {
+  local empty pending stale footer
+  footer=$'  Grok 4.6 High Fast                     Run Everything\n  ~/wt · e57df84'
+  empty=$'turn_ended/error\n\n  \033[2m→ \033[0;7mP\033[0;2mlan, search, build anything\033[0m\n\n\n'"$footer"
+  assert_screen "current borderless Herdr Cursor empty composer" empty \
+    "$CAPS_HERDR_CURSOR" "$empty" '' $'cursor\tunknown'
+
+  pending=$'turn_ended/error\n\n  → validation draft 8472 - do not submit\n\n\n'"$footer"
+  assert_screen "current borderless Herdr Cursor pending composer" pending \
+    "$CAPS_HERDR_CURSOR" "$pending" '' $'cursor\tunknown'
+
+  stale=$'turn_ended/error\n  \033[2m→ \033[0;7mP\033[0;2mlan, search, build anything\033[0m\n\n'"$footer"$'\nerror: usage exhausted'
+  assert_screen "current borderless Herdr Cursor footer followed by history" unknown \
+    "$CAPS_HERDR_CURSOR" "$stale" '' $'cursor\tunknown'
+  pass "matrix: current Herdr Cursor bottom footer proves only the live composer"
+}
+
 test_matrix_omp_status_row_bounds_bare_composer() {
   # omp (Oh My Pi) draws its status line directly BELOW the borderless `❯`
   # composer. Captured live through Herdr on omp 18.1.11 under the captain's
@@ -1073,6 +1090,7 @@ test_matrix_muse_truecolor_glyph_survives_signal_loss
 test_matrix_cursor_reverse_video_placeholder_remnant
 test_matrix_herdr_halfblock_rule_bounds_bare_wrap
 test_matrix_herdr_cursor_requires_complete_halfblock_envelope
+test_matrix_herdr_cursor_accepts_current_bottom_footer
 test_matrix_omp_status_row_bounds_bare_composer
 test_matrix_codex_idle_starfield_furniture
 test_matrix_pi_separated_needs_identity

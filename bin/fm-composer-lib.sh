@@ -77,11 +77,11 @@
 #                different, self-proving thing: real claude 2.x draws exactly
 #                that (`─` rule, `❯`+NBSP, `─` rule), so the glyph inside the
 #                pair carries the shape and no identity is needed.
-#   herdr-cursor-halfblock - Cursor on Herdr: a complete `▄` top rule and
-#                matching `▀` bottom rule enclosing the `→` row. The pair is
-#                required because history and error screens can retain `→`
-#                rows without an editable composer; incomplete, mismatched,
-#                and uncontained rows remain unknown.
+#   herdr-cursor-live - Cursor on Herdr: either a complete matching half-block
+#                envelope or the current borderless composer followed only by
+#                its exact bottom footer pair. History and error screens can
+#                retain `→` rows without editable input, so incomplete,
+#                mismatched, uncontained, and non-bottom rows remain unknown.
 #
 # THE COMPOSER FOOTER ZONE (task firstmate-doorbell-vals-pending-p1): a
 # harness draws its own furniture BELOW the composer - a user statusLine, a
@@ -1667,6 +1667,35 @@ _fm_composer_halfblock_encloses_arrow() {  # <plain-screen> <arrow-row>
   done
 }
 
+# Current Cursor releases omit the half-block rules. In that shape, only the
+# exact bottom footer pair can prove that the arrow is the live composer.
+_fm_composer_cursor_bottom_footer_after_arrow() {  # <plain-screen> <arrow-row>
+  local plain=$1 row=$2 rows candidate state=model
+  rows=$(printf '%s\n' "$plain" | awk 'END { print NR }')
+  row=$((row + 1))
+  while [ "$row" -lt "$rows" ]; do
+    candidate=$(_fm_composer_screen_row "$row" "$plain")
+    fm_composer_normalize_trim_var candidate
+    if [ -z "$candidate" ]; then
+      row=$((row + 1))
+      continue
+    fi
+    case "$state:$candidate" in
+      model:*'Run Everything') state=path ;;
+      path:'~/'*' · '[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) state=done ;;
+      path:/*' · '[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) state=done ;;
+      *) return 1 ;;
+    esac
+    row=$((row + 1))
+  done
+  [ "$state" = done ]
+}
+
+_fm_composer_cursor_live_arrow() {  # <plain-screen> <arrow-row>
+  _fm_composer_halfblock_encloses_arrow "$@" \
+    || _fm_composer_cursor_bottom_footer_after_arrow "$@"
+}
+
 fm_composer_extract_selected_content() {  # <caps> <screen>
   local caps=$1 screen=$2 styled=0 kv plain row raw content glyph joined='' footer_re prompt_row=-1
   local leading_blank=1 placeholder_position=0 prompt_is_shell=0
@@ -1791,7 +1820,7 @@ EOF
       fm_composer_normalize_trim_var candidate_trim
       if fm_composer_leading_agent_glyph_var candidate_glyph "$candidate_trim" \
          && [ "$candidate_glyph" = '→' ] \
-         && ! _fm_composer_halfblock_encloses_arrow "$plain" "$FM_COMPOSER_SCAN_BARE_ROW"; then
+         && ! _fm_composer_cursor_live_arrow "$plain" "$FM_COMPOSER_SCAN_BARE_ROW"; then
         printf 'unknown'
         return 0
       fi
@@ -1860,7 +1889,7 @@ EOF
     fm_composer_normalize_trim_var candidate_trim
     if fm_composer_leading_agent_glyph_var candidate_glyph "$candidate_trim" \
        && [ "$candidate_glyph" = '→' ] \
-       && ! _fm_composer_halfblock_encloses_arrow "$plain" "$FM_COMPOSER_SELECTED_FIRST"; then
+       && ! _fm_composer_cursor_live_arrow "$plain" "$FM_COMPOSER_SELECTED_FIRST"; then
       printf 'unknown'
       return 0
     fi
