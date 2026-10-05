@@ -1681,7 +1681,7 @@ _fm_composer_cursor_bottom_footer_after_arrow() {  # <plain-screen> <arrow-row>
       continue
     fi
     case "$state:$candidate" in
-      model:*'Run Everything') state=path ;;
+      model:Grok*' High Fast') state=path ;;
       path:'~/'*' · '[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) state=done ;;
       path:/*' · '[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) state=done ;;
       *) return 1 ;;
