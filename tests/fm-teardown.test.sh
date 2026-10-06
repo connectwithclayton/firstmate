@@ -710,6 +710,8 @@ test_archive_only_preserves_copy_and_deferred_approval() {
     || fail 'archive-only retention moved the preserved branch'
   grep -Fxq 'lifecycle=retained' "$case_dir/state/task-x1.meta" \
     || fail 'archive-only retention did not mark the runtime record'
+  grep -Fxq 'retained_spawn_gen=teardown-test-task-x1' "$case_dir/state/task-x1.meta" \
+    || fail 'archive-only retention did not bind custody to the archived spawn generation'
   [ "$(backlog_row_state "$case_dir")" = 'done' ] \
     || fail 'archive-only retention changed the Done row'
   PATH="$case_dir/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" \
@@ -720,6 +722,18 @@ test_archive_only_preserves_copy_and_deferred_approval() {
     and .retained[0].id == "task-x1" and .retained[0].mode == "inactive"' \
     "$case_dir/state/home-summary.json" >/dev/null \
     || fail 'inactive retained record was not projected as preserved custody'
+  sed 's/^spawn_gen=.*/spawn_gen=relaunched-generation/' \
+    "$case_dir/state/task-x1.meta" > "$case_dir/state/task-x1.meta.next"
+  mv "$case_dir/state/task-x1.meta.next" "$case_dir/state/task-x1.meta"
+  PATH="$case_dir/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" \
+    FM_STATE_OVERRIDE="$case_dir/state" FM_DATA_OVERRIDE="$case_dir/data" \
+    FM_CONFIG_OVERRIDE="$case_dir/config" "$ROOT/bin/fm-home-summary-refresh.sh" \
+    || fail 'relaunch generation summary refresh failed'
+  jq -e '.valid == false and .counts.retained == 0
+    and .invalidity.kind == "unowned_current"
+    and (.invalidity.ids | index("task-x1")) != null' \
+    "$case_dir/state/home-summary.json" >/dev/null \
+    || fail 'snapshot treated retention from an older generation as current custody'
 
   approval=$(make_case archive-only-approval)
   write_meta "$approval" no-mistakes ship
@@ -750,6 +764,13 @@ PY
   write_meta "$acceptance" no-mistakes ship
   printf '%s\n' 'harness=claude' 'backend=tmux' >> "$acceptance/state/task-x1.meta"
   seed_backlog_in_flight "$acceptance"
+  python3 - "$acceptance/data/backlog.md" <<'PY'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+text = text.replace(' (kind:', ' (hold: physical acceptance required) (hold-kind: captain) (hold-until: 2026-10-01) (kind:', 1)
+open(path, 'w').write(text)
+PY
   printf '%s\n' 'done: implementation awaits physical acceptance' > "$acceptance/state/task-x1.status"
   gen=$(FM_STATE_OVERRIDE="$acceptance/state" "$ROOT/bin/fm-busy-event.sh" arm "$acceptance/state" task-x1)
   FM_STATE_OVERRIDE="$acceptance/state" "$ROOT/bin/fm-busy-event.sh" apply "$acceptance/state" task-x1 idle --gen "$gen" --source claude-hook --event stop
@@ -760,11 +781,16 @@ PY
     FM_STATE_OVERRIDE="$acceptance/state" FM_DATA_OVERRIDE="$acceptance/data" \
     FM_CONFIG_OVERRIDE="$acceptance/config" "$ROOT/bin/fm-home-summary-refresh.sh" \
     || fail 'awaiting-acceptance summary refresh failed'
-  jq -e '.valid and .state == "externally_held"
-    and any(.queued[]; .id == "task-x1" and .hold_kind == "retained")
-    and any(.holds[]; .id == "task-x1" and .source == "backlog")' \
+  jq -e '.valid and .state == "captain_decision"
+    and any(.queued[]; .id == "task-x1" and .retained_record == true
+      and .retained_custody.mode == "awaiting-acceptance"
+      and .retained_custody.spawn_gen == "teardown-test-task-x1"
+      and .hold_kind == "captain" and .hold_reason == "physical acceptance required"
+      and .hold_until == "2026-10-01" and .captain_actionable == true)
+    and any(.decisions_open[]; .id == "task-x1" and .verb == "captain-hold"
+      and .reason == "physical acceptance required" and .hold_until == "2026-10-01")' \
     "$acceptance/state/home-summary.json" >/dev/null \
-    || fail 'awaiting-acceptance record was not held and routable'
+    || fail "awaiting-acceptance record was not held and routable: $(jq -c '{state,queued,decisions_open}' "$acceptance/state/home-summary.json")"
 
   pending_answer=$(make_case archive-only-pending-answer)
   write_meta "$pending_answer" no-mistakes ship

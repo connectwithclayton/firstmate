@@ -54,7 +54,8 @@
 #     Local current_state is parsed from bin/fm-crew-state.sh <id> and preserves
 #     state, source, detail, and raw line separately. A validated
 #     lifecycle=retained metadata record carries its retention disposition,
-#     reason, terminal proof, and provenance without hiding endpoint evidence.
+#     reason, terminal proof, archived spawn generation, and provenance without
+#     hiding endpoint evidence.
 #     Remote secondmate rows use an explicit unknown value because their endpoint
 #     liveness belongs to
 #     supervision rather than this snapshot path.
@@ -753,7 +754,7 @@ prefetch_task_current_states() {
 }
 
 task_json_lines() {
-  local meta original_meta id kind harness mode yolo project worktree home projects spawn_gen lifecycle retained_mode retained_at retained_reason retained_state retained_source backend target status_log report_path
+  local meta original_meta id kind harness mode yolo project worktree home projects spawn_gen lifecycle retained_mode retained_at retained_reason retained_state retained_source retained_spawn_gen backend target status_log report_path
   local remote_host remote_root current_file endpoint_file observation_line index=0
   local pr pr_source event_json current_json endpoint_exists agent_alive meta_json status_json report_json worktree_json home_json retention_json
   local last_event_raw current_state current_source pending_decision blocked_event report_present=0 pr_from_status
@@ -780,6 +781,7 @@ task_json_lines() {
     retained_reason=$(meta_value "$meta" retained_reason)
     retained_state=$(meta_value "$meta" retained_state)
     retained_source=$(meta_value "$meta" retained_source)
+    retained_spawn_gen=$(meta_value "$meta" retained_spawn_gen)
     branch=$(meta_value "$meta" branch)
     remote_host=$(meta_value "$meta" remote_host)
     remote_root=$(meta_value "$meta" remote_root)
@@ -870,10 +872,13 @@ task_json_lines() {
       --arg reason "$retained_reason" \
       --arg state "$retained_state" \
       --arg source "$retained_source" \
+      --arg spawn_gen "$spawn_gen" \
+      --arg retained_spawn_gen "$retained_spawn_gen" \
       '($lifecycle == "retained" and ($mode == "inactive" or $mode == "awaiting-acceptance")
         and $at != "" and ($at | test("^[0-9]+$")) and $reason != ""
-        and ($state == "done" or $state == "failed") and $source == "archive-only") as $valid
-       | {valid:$valid,lifecycle:($lifecycle | if . == "" then null else . end),mode:($mode | if . == "" then null else . end),at:($at | if . == "" then null else . end),reason:($reason | if . == "" then null else . end),state:($state | if . == "" then null else . end),source:($source | if . == "" then null else . end)}')
+        and ($state == "done" or $state == "failed") and $source == "archive-only"
+        and $spawn_gen != "" and $retained_spawn_gen == $spawn_gen) as $valid
+       | {valid:$valid,lifecycle:($lifecycle | if . == "" then null else . end),mode:($mode | if . == "" then null else . end),at:($at | if . == "" then null else . end),reason:($reason | if . == "" then null else . end),state:($state | if . == "" then null else . end),source:($source | if . == "" then null else . end),spawn_gen:($retained_spawn_gen | if . == "" then null else . end)}')
     if [ -n "$home" ] && [ -n "$remote_host" ]; then
       home_json=$(jq -n --arg path "$home" '{path:$path,present:null}')
     elif [ -n "$home" ]; then
@@ -1034,17 +1039,13 @@ secondmate_home_summary_json() {  # <backlog-json-file> <tasks-json-file>
          | select(.current_state.state == "done" or .current_state.state == "failed" or .current_state.state == "unknown")
        ]) as $retained_tasks
     | ([ $owned_in_flight[] as $work
-         | $retained_tasks[]
-         | select(.id == $work.id and .retention.mode == "awaiting-acceptance")
+         | $retained_tasks[] as $retained
+         | select($retained.id == $work.id and $retained.retention.mode == "awaiting-acceptance")
          | $work + {
-             current_role:"held",
              retained_record:true,
-             hold_kind:"retained",
-             hold_reason:("runtime record retained for acceptance: " + (.retention.reason // "acceptance pending")),
-             hold_until:null,
-             hold_bucket:null,
-             hold_age_days:null,
-             captain_actionable:false
+             retained_custody:{mode:$retained.retention.mode,reason:$retained.retention.reason,
+               at:$retained.retention.at,state:$retained.retention.state,
+               spawn_gen:$retained.retention.spawn_gen}
            } ]) as $retained_queued
     | ([ $backlog.records[]?
          | select(.structured and
@@ -1181,6 +1182,8 @@ secondmate_home_summary_json() {  # <backlog-json-file> <tasks-json-file>
           hold_bucket:(.hold_bucket // null),
           hold_age_days:(.hold_age_days // null),
           captain_actionable:(.captain_actionable // false),
+          retained_record:(.retained_record // false),
+          retained_custody:(.retained_custody // null),
           repo:((.repo // null) | if . == null then null else trunc(120) end),
           kind:((.kind // null) | if . == null then null else trunc(40) end),
           since:((.since // null) | if . == null then null else trunc(40) end)}]
@@ -1955,6 +1958,7 @@ secondmate_current_json() {  # <parent-tasks-json-file> <output-file>
          freshness:{status:$summary_freshness,observed_at:$observed,age_seconds:$summary_age},
          active_children:$summary.active_children,
          decisions_open:$summary.decisions_open,holds:$summary.holds,queued:$summary.queued,
+         retained:($summary.retained // []),warnings:($summary.warnings // []),
          contributions:($summary.contributions // null),
          landed:$summary.landed,endpoints:$summary.endpoints,counts:$summary.counts,omitted:$summary.omitted,
          parent_event:{raw:$event_raw,note:$event_note,age_seconds:$event_age,open_activities:$activities,open_decisions:$decisions,activity_scan:$activity_scan,reconciliation:$reconciliation},
@@ -1987,7 +1991,10 @@ secondmate_current_json() {  # <parent-tasks-json-file> <output-file>
          reconcile_inventory:(if $summary_sampled then $summary.invalidity else null end),
          provenance:{selected:$provenance,structured_home:($home | if . == "" then null else . end),parent_event_role:"fallback-only-not-current"},
          freshness:{status:$freshness,observed_at:$observed,age_seconds:$observed_age},
-         active_children:[],decisions_open:[],holds:[],queued:[],landed:[],endpoints:[],counts:{active_children:0,decisions_open:0,holds:0,queued:0,landed:0,endpoints:0},omitted:[],
+         active_children:[],decisions_open:[],holds:[],queued:[],
+         retained:(if $summary_sampled then ($summary.retained // []) else [] end),
+         warnings:(if $summary_sampled then ($summary.warnings // []) else [] end),
+         landed:[],endpoints:[],counts:{active_children:0,decisions_open:0,holds:0,queued:0,landed:0,endpoints:0},omitted:[],
          parent_event:{raw:$event_raw,note:$event_note,age_seconds:$event_age,open_activities:$activities,open_decisions:$decisions,activity_scan:$activity_scan},
          terminal_evidence:$terminal,contradiction:false}' >> "$records_file" || return 1
     fi

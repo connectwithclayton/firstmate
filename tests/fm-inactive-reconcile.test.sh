@@ -123,14 +123,16 @@ run_report() { # <home> <child>
 }
 
 retain_child() { # <home> <child> <mode> <state>
-  local home=$1 child=$2 mode=$3 state=$4
+  local home=$1 child=$2 mode=$3 state=$4 spawn_gen
+  spawn_gen=$(sed -n 's/^spawn_gen=//p' "$home/state/$child.meta")
   printf '%s\n' \
     'lifecycle=retained' \
     "retained_mode=$mode" \
     'retained_at=1700000000' \
     'retained_reason=preserved terminal work' \
     "retained_state=$state" \
-    'retained_source=archive-only' >> "$home/state/$child.meta"
+    'retained_source=archive-only' \
+    "retained_spawn_gen=$spawn_gen" >> "$home/state/$child.meta"
 }
 
 wake_count() { # <home> <key prefix>
@@ -205,6 +207,23 @@ test_retained_children_are_retired_from_reconciliation() {
   ! grep -Fq 'child child done' "$MAIN/state/mate.status" \
     || fail 'retained secondmate child published another parent outcome'
   pass 'validated retained children are retired from scan and report reconciliation'
+}
+
+test_relaunched_generation_is_not_retired_by_old_retention() {
+  make_world retained-relaunched
+  write_child "$MAIN" child 'done: archived generation'
+  retain_child "$MAIN" child awaiting-acceptance "done"
+  sed 's/^spawn_gen=.*/spawn_gen=relaunched-generation/' \
+    "$MAIN/state/child.meta" > "$MAIN/state/child.meta.next"
+  mv "$MAIN/state/child.meta.next" "$MAIN/state/child.meta"
+  printf '%s\n' 'done: relaunch produced a new outcome' > "$MAIN/state/child.status"
+  age "$MAIN/state/child.meta" "$MAIN/state/child.status"
+  FM_FAKE_CREW_STATE='done' run_reconcile "$MAIN" --startup
+  [ "$(wake_count "$MAIN" 'inactive-outcome:')" = 1 ] \
+    || fail 'a retained marker from an older generation hid the relaunched outcome'
+  [ "$(outcome_count "$MAIN" pending)" = 1 ] \
+    || fail 'the relaunched generation did not create its terminal receipt'
+  pass 'retention from an older spawn generation cannot retire relaunched work'
 }
 
 # Away-posture regression: a branch-actor drain that consumes an
@@ -1075,6 +1094,7 @@ SH
 
 test_main_direct_terminal_presentation_receipt
 test_retained_children_are_retired_from_reconciliation
+test_relaunched_generation_is_not_retired_by_old_retention
 test_branch_ack_retires_inactive_outcome_receipt
 test_unpushed_ci_ready_done_is_not_published
 test_delivered_ledger_done_skips_git_gate

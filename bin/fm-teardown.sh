@@ -597,7 +597,7 @@ archive_only_write_record() {
   tmp=$(umask 077; mktemp "$STATE/.${ID}.archive-only.XXXXXX") || return 1
   while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in
-      lifecycle=*|retained_mode=*|retained_at=*|retained_reason=*|retained_state=*|retained_source=*)
+      lifecycle=*|retained_mode=*|retained_at=*|retained_reason=*|retained_state=*|retained_source=*|retained_spawn_gen=*)
         continue
         ;;
     esac
@@ -610,6 +610,7 @@ archive_only_write_record() {
     printf 'retained_reason=%s\n' "$ARCHIVE_REASON"
     printf 'retained_state=%s\n' "$ARCHIVE_CURRENT_STATE"
     printf 'retained_source=archive-only\n'
+    printf 'retained_spawn_gen=%s\n' "$(archive_only_field spawn_gen)"
   } >> "$tmp" || { rm -f -- "$tmp"; return 1; }
   chmod 600 "$tmp" 2>/dev/null || true
   mv -f -- "$tmp" "$META"
@@ -636,11 +637,19 @@ archive_only_task() {
         return 1
         ;;
     esac
+    if [ "$(archive_only_field retained_spawn_gen)" != "$(archive_only_field spawn_gen)" ]; then
+      archive_only_refuse "the retained provenance belongs to a different spawn generation"
+      return 1
+    fi
     echo "archive-only $ID already retained (disposition=$mode)"
     return 0
   fi
   if [ -n "$lifecycle" ]; then
     archive_only_refuse "unrecognized lifecycle '$lifecycle'"
+    return 1
+  fi
+  if [ -z "$(archive_only_field spawn_gen)" ]; then
+    archive_only_refuse "the task record has no spawn generation to retain"
     return 1
   fi
   if [ "$TEARDOWN_META_KIND" = secondmate ]; then
