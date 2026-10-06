@@ -684,7 +684,7 @@ archive_only_task() {
       ;;
   esac
   open_decisions=$(status_open_decisions "$STATE/$ID.status" "$TEARDOWN_META_KIND" 2>/dev/null || true)
-  if [ -n "$open_decisions" ] && [ "$ARCHIVE_DISPOSITION" != awaiting-acceptance ]; then
+  if [ -n "$open_decisions" ]; then
     archive_only_refuse "an open approval or answer remains routable"
     return 1
   fi

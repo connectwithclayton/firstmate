@@ -122,6 +122,17 @@ run_report() { # <home> <child>
     FM_FORGE_LOG="$WORLD/forge.log" "$RECON" report "$child"
 }
 
+retain_child() { # <home> <child> <mode> <state>
+  local home=$1 child=$2 mode=$3 state=$4
+  printf '%s\n' \
+    'lifecycle=retained' \
+    "retained_mode=$mode" \
+    'retained_at=1700000000' \
+    'retained_reason=preserved terminal work' \
+    "retained_state=$state" \
+    'retained_source=archive-only' >> "$home/state/$child.meta"
+}
+
 wake_count() { # <home> <key prefix>
   grep -c "$2" "$1/state/.wake-queue" 2>/dev/null || true
 }
@@ -170,6 +181,30 @@ test_main_direct_terminal_presentation_receipt() {
   FM_HOME="$MAIN" FM_STATE_OVERRIDE="$MAIN/state" "$DRAIN" --ack-through "$seq" --recovery-generation "$generation"
   [ "$(outcome_count "$MAIN" presented)" = 1 ] || fail "acknowledged presentation did not receive its own receipt"
   pass "main direct terminal presentation has a durable receipt"
+}
+
+test_retained_children_are_retired_from_reconciliation() {
+  make_world retained-main
+  write_child "$MAIN" child 'done: retained implementation'
+  retain_child "$MAIN" child inactive done
+  FM_FAKE_CREW_STATE='done' run_reconcile "$MAIN" --startup
+  [ -z "$(wake_count "$MAIN" 'inactive-outcome:')" ] \
+    || fail 'retained main child queued another inactive outcome'
+  [ "$(outcome_count "$MAIN" pending)" = 0 ] \
+    || fail 'retained main child created another terminal receipt'
+
+  make_world retained-mate
+  bind_secondmate local
+  write_mate_meta
+  write_child "$MATE" child 'done: retained implementation'
+  retain_child "$MATE" child awaiting-acceptance done
+  run_report "$MATE" child || fail 'retained report entry point failed'
+  FM_FAKE_CREW_STATE='done' run_reconcile "$MATE" --startup
+  [ "$(outcome_count "$MATE" reported)" = 0 ] \
+    || fail 'retained secondmate child published another terminal receipt'
+  ! grep -Fq 'child child done' "$MAIN/state/mate.status" \
+    || fail 'retained secondmate child published another parent outcome'
+  pass 'validated retained children are retired from scan and report reconciliation'
 }
 
 # Away-posture regression: a branch-actor drain that consumes an
@@ -1039,6 +1074,7 @@ SH
 }
 
 test_main_direct_terminal_presentation_receipt
+test_retained_children_are_retired_from_reconciliation
 test_branch_ack_retires_inactive_outcome_receipt
 test_unpushed_ci_ready_done_is_not_published
 test_delivered_ledger_done_skips_git_gate
