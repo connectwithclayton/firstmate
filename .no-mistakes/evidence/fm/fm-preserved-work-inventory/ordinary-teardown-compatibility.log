@@ -1,0 +1,2 @@
+ok - local-only worktree with HEAD on a fork remote is torn down and the home summary is refreshed
+ok - dirty worktree is refused even when its committed work has landed (dirty always wins)
