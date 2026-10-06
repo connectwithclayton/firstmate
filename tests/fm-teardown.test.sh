@@ -686,7 +686,7 @@ assert_archive_only_refuses_unchanged() {
 }
 
 test_archive_only_preserves_copy_and_deferred_approval() {
-  local case_dir approval acceptance pending_answer live ambiguous pending_input task_board
+  local case_dir approval acceptance acceptance_without_hold pending_answer live ambiguous pending_input task_board
   local run_inventory head branch out rc gen
   case_dir=$(make_case archive-only-preserve)
   write_meta "$case_dir" no-mistakes ship
@@ -791,6 +791,29 @@ PY
       and .reason == "physical acceptance required" and .hold_until == "2026-10-01")' \
     "$acceptance/state/home-summary.json" >/dev/null \
     || fail "awaiting-acceptance record was not held and routable: $(jq -c '{state,queued,decisions_open}' "$acceptance/state/home-summary.json")"
+
+  acceptance_without_hold=$(make_case archive-only-acceptance-without-hold)
+  write_meta "$acceptance_without_hold" no-mistakes ship
+  printf '%s\n' 'harness=claude' 'backend=tmux' >> "$acceptance_without_hold/state/task-x1.meta"
+  seed_backlog_in_flight "$acceptance_without_hold"
+  printf '%s\n' 'done: implementation awaits acceptance' > "$acceptance_without_hold/state/task-x1.status"
+  gen=$(FM_STATE_OVERRIDE="$acceptance_without_hold/state" "$ROOT/bin/fm-busy-event.sh" arm "$acceptance_without_hold/state" task-x1)
+  FM_STATE_OVERRIDE="$acceptance_without_hold/state" "$ROOT/bin/fm-busy-event.sh" apply "$acceptance_without_hold/state" task-x1 idle --gen "$gen" --source claude-hook --event stop
+  run_teardown "$acceptance_without_hold" --archive-only --disposition awaiting-acceptance \
+    --reason 'acceptance remains pending' >/dev/null \
+    || fail 'holdless awaiting-acceptance retention unexpectedly failed'
+  PATH="$acceptance_without_hold/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" \
+    FM_STATE_OVERRIDE="$acceptance_without_hold/state" FM_DATA_OVERRIDE="$acceptance_without_hold/data" \
+    FM_CONFIG_OVERRIDE="$acceptance_without_hold/config" "$ROOT/bin/fm-home-summary-refresh.sh" \
+    || fail 'holdless awaiting-acceptance summary refresh failed'
+  jq -e '.valid and .state == "externally_held"
+    and any(.queued[]; .id == "task-x1" and .retained_record == true
+      and .hold_kind == "retained" and .hold_reason == "acceptance remains pending"
+      and .captain_actionable == false)
+    and any(.holds[]; .id == "task-x1" and .reason == "acceptance remains pending")
+    and ([.decisions_open[] | select(.id == "task-x1")] | length) == 0' \
+    "$acceptance_without_hold/state/home-summary.json" >/dev/null \
+    || fail "holdless awaiting-acceptance record was not externally held: $(jq -c '{state,queued,holds,decisions_open}' "$acceptance_without_hold/state/home-summary.json")"
 
   pending_answer=$(make_case archive-only-pending-answer)
   write_meta "$pending_answer" no-mistakes ship

@@ -1046,7 +1046,11 @@ secondmate_home_summary_json() {  # <backlog-json-file> <tasks-json-file>
              retained_custody:{mode:$retained.retention.mode,reason:$retained.retention.reason,
                at:$retained.retention.at,state:$retained.retention.state,
                spawn_gen:$retained.retention.spawn_gen}
-           } ]) as $retained_queued
+           }
+         | if .hold_reason == null and .hold_kind == null then
+             . + {hold_reason:$retained.retention.reason,hold_kind:"retained",
+                  captain_actionable:false}
+           else . end ]) as $retained_queued
     | ([ $backlog.records[]?
          | select(.structured and
              (.hold_bucket != null or .state == "queued" or
