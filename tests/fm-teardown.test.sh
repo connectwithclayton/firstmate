@@ -656,8 +656,38 @@ backlog_row_state() {
     sed -n 's/^  state: *//p' | head -1
 }
 
+prepare_archive_only_refusal_case() {
+  local case_dir=$1 busy_state=$2 gen
+  write_meta "$case_dir" no-mistakes ship
+  printf '%s\n' 'harness=claude' 'backend=tmux' >> "$case_dir/state/task-x1.meta"
+  seed_backlog_in_flight "$case_dir"
+  tasks-axi 'done' task-x1 --file "$case_dir/data/backlog.md" >/dev/null
+  printf '%s\n' 'done: submitted delivery retained' > "$case_dir/state/task-x1.status"
+  gen=$(FM_STATE_OVERRIDE="$case_dir/state" "$ROOT/bin/fm-busy-event.sh" arm "$case_dir/state" task-x1)
+  FM_STATE_OVERRIDE="$case_dir/state" "$ROOT/bin/fm-busy-event.sh" apply \
+    "$case_dir/state" task-x1 "$busy_state" --gen "$gen" \
+    --source claude-hook --event archive-only-test
+}
+
+assert_archive_only_refuses_unchanged() {
+  local case_dir=$1 expected=$2 label=$3 out rc head
+  head=$(git -C "$case_dir/wt" rev-parse HEAD)
+  set +e
+  out=$(run_teardown "$case_dir" --archive-only --reason 'must preserve active custody' 2>&1)
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "$label was archived"
+  printf '%s' "$out" | grep -F "$expected" >/dev/null \
+    || fail "$label refusal was unclear: $out"
+  [ "$(git -C "$case_dir/wt" rev-parse HEAD)" = "$head" ] \
+    || fail "$label refusal moved the preserved copy"
+  ! grep -Fxq 'lifecycle=retained' "$case_dir/state/task-x1.meta" \
+    || fail "$label refusal changed lifecycle state"
+}
+
 test_archive_only_preserves_copy_and_deferred_approval() {
-  local case_dir approval acceptance pending_answer run_inventory head branch out rc gen
+  local case_dir approval acceptance pending_answer live ambiguous pending_input task_board
+  local run_inventory head branch out rc gen
   case_dir=$(make_case archive-only-preserve)
   write_meta "$case_dir" no-mistakes ship
   printf '%s\n' 'harness=claude' 'backend=tmux' > "$case_dir/state/task-x1.extra"
@@ -768,6 +798,32 @@ outcome: passed" run_teardown "$pending_answer" --archive-only \
     || fail "awaiting-acceptance answer refusal was unclear: $out"
   ! grep -Fxq 'lifecycle=retained' "$pending_answer/state/task-x1.meta" \
     || fail 'awaiting-acceptance answer refusal changed lifecycle state'
+
+  live=$(make_case archive-only-live)
+  prepare_archive_only_refusal_case "$live" busy
+  assert_archive_only_refuses_unchanged "$live" 'current state is working' \
+    'archive-only live-state retention'
+
+  ambiguous=$(make_case archive-only-ambiguous)
+  prepare_archive_only_refusal_case "$ambiguous" unknown
+  assert_archive_only_refuses_unchanged "$ambiguous" 'current state is unavailable' \
+    'archive-only ambiguous-state retention'
+
+  pending_input=$(make_case archive-only-pending-input)
+  prepare_archive_only_refusal_case "$pending_input" idle
+  mkdir -p "$pending_input/state/task-x1.inbox"
+  printf '%s\n' 'captain steering remains unread' \
+    > "$pending_input/state/task-x1.inbox/001.msg"
+  assert_archive_only_refuses_unchanged "$pending_input" \
+    'pending steering input remains unread' 'archive-only pending-input retention'
+
+  task_board=$(make_case archive-only-task-board)
+  prepare_archive_only_refusal_case "$task_board" idle
+  mkdir -p "$task_board/state/procevent-inbox"
+  printf '%s\n' 'task-x1' \
+    > "$task_board/state/procevent-inbox/review.1.owner-task"
+  assert_archive_only_refuses_unchanged "$task_board" \
+    'a task-owned board remains registered' 'archive-only task-owned-board retention'
   pass 'archive-only retention preserves clean remote-reachable copies and refuses deferred approval'
 }
 
