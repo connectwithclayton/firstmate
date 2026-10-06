@@ -656,6 +656,89 @@ backlog_row_state() {
     sed -n 's/^  state: *//p' | head -1
 }
 
+test_archive_only_preserves_copy_and_deferred_approval() {
+  local case_dir approval head branch out rc gen
+  case_dir=$(make_case archive-only-preserve)
+  write_meta "$case_dir" no-mistakes ship
+  printf '%s\n' 'harness=claude' 'backend=tmux' > "$case_dir/state/task-x1.extra"
+  cat "$case_dir/state/task-x1.meta" "$case_dir/state/task-x1.extra" > "$case_dir/state/task-x1.meta.tmp"
+  mv "$case_dir/state/task-x1.meta.tmp" "$case_dir/state/task-x1.meta"
+  rm -f "$case_dir/state/task-x1.extra"
+  seed_backlog_in_flight "$case_dir"
+  tasks-axi 'done' task-x1 --file "$case_dir/data/backlog.md" >/dev/null
+  printf '%s\n' 'done: submitted delivery retained' > "$case_dir/state/task-x1.status"
+  gen=$(FM_STATE_OVERRIDE="$case_dir/state" "$ROOT/bin/fm-busy-event.sh" arm "$case_dir/state" task-x1)
+  FM_STATE_OVERRIDE="$case_dir/state" "$ROOT/bin/fm-busy-event.sh" apply "$case_dir/state" task-x1 idle --gen "$gen" --source claude-hook --event stop
+  head=$(git -C "$case_dir/wt" rev-parse HEAD)
+  branch=$(git -C "$case_dir/wt" symbolic-ref --short HEAD)
+  out=$(run_teardown "$case_dir" --archive-only --reason 'submitted delivery remains in custody') \
+    || fail "archive-only retention unexpectedly failed: $out"
+  [ -d "$case_dir/wt" ] || fail 'archive-only retention returned the clean copy'
+  [ "$(git -C "$case_dir/wt" rev-parse HEAD)" = "$head" ] \
+    || fail 'archive-only retention moved the preserved copy'
+  [ "$(git -C "$case_dir/wt" symbolic-ref --short HEAD)" = "$branch" ] \
+    || fail 'archive-only retention moved the preserved branch'
+  grep -Fxq 'lifecycle=retained' "$case_dir/state/task-x1.meta" \
+    || fail 'archive-only retention did not mark the runtime record'
+  [ "$(backlog_row_state "$case_dir")" = 'done' ] \
+    || fail 'archive-only retention changed the Done row'
+  PATH="$case_dir/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" \
+    FM_STATE_OVERRIDE="$case_dir/state" FM_DATA_OVERRIDE="$case_dir/data" \
+    FM_CONFIG_OVERRIDE="$case_dir/config" "$ROOT/bin/fm-home-summary-refresh.sh" \
+    || fail 'archive-only retention summary refresh failed'
+  jq -e '.valid and .invalidity.kind == null and .counts.retained == 1
+    and .retained[0].id == "task-x1" and .retained[0].mode == "inactive"' \
+    "$case_dir/state/home-summary.json" >/dev/null \
+    || fail 'inactive retained record was not projected as preserved custody'
+
+  approval=$(make_case archive-only-approval)
+  write_meta "$approval" no-mistakes ship
+  printf '%s\n' 'harness=claude' 'backend=tmux' >> "$approval/state/task-x1.meta"
+  seed_backlog_in_flight "$approval"
+  tasks-axi 'done' task-x1 --file "$approval/data/backlog.md" >/dev/null
+  python3 - "$approval/data/backlog.md" <<'PY'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+text = text.replace(' (done ', ' (hold: merge approval remains) (hold-kind: captain) (done ', 1)
+open(path, 'w').write(text)
+PY
+  printf '%s\n' 'done: submitted delivery retained' > "$approval/state/task-x1.status"
+  gen=$(FM_STATE_OVERRIDE="$approval/state" "$ROOT/bin/fm-busy-event.sh" arm "$approval/state" task-x1)
+  FM_STATE_OVERRIDE="$approval/state" "$ROOT/bin/fm-busy-event.sh" apply "$approval/state" task-x1 idle --gen "$gen" --source claude-hook --event stop
+  set +e
+  out=$(run_teardown "$approval" --archive-only --reason 'must not consume merge approval' 2>&1)
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail 'archive-only retention consumed a deferred approval'
+  printf '%s' "$out" | grep -F 'deferred captain approval' >/dev/null \
+    || fail "archive-only approval refusal was unclear: $out"
+  [ ! -e "$approval/state/task-x1.meta.lifecycle" ] || fail 'approval refusal created sidecar state'
+  [ ! -e "$approval/state/task-x1.meta.retained" ] || fail 'approval refusal created retained state'
+
+  local acceptance
+  acceptance=$(make_case archive-only-acceptance)
+  write_meta "$acceptance" no-mistakes ship
+  printf '%s\n' 'harness=claude' 'backend=tmux' >> "$acceptance/state/task-x1.meta"
+  seed_backlog_in_flight "$acceptance"
+  printf '%s\n' 'done: implementation awaits physical acceptance' > "$acceptance/state/task-x1.status"
+  gen=$(FM_STATE_OVERRIDE="$acceptance/state" "$ROOT/bin/fm-busy-event.sh" arm "$acceptance/state" task-x1)
+  FM_STATE_OVERRIDE="$acceptance/state" "$ROOT/bin/fm-busy-event.sh" apply "$acceptance/state" task-x1 idle --gen "$gen" --source claude-hook --event stop
+  run_teardown "$acceptance" --archive-only --disposition awaiting-acceptance \
+    --reason 'physical acceptance remains pending' >/dev/null \
+    || fail 'awaiting-acceptance retention unexpectedly failed'
+  PATH="$acceptance/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" \
+    FM_STATE_OVERRIDE="$acceptance/state" FM_DATA_OVERRIDE="$acceptance/data" \
+    FM_CONFIG_OVERRIDE="$acceptance/config" "$ROOT/bin/fm-home-summary-refresh.sh" \
+    || fail 'awaiting-acceptance summary refresh failed'
+  jq -e '.valid and .state == "externally_held"
+    and any(.queued[]; .id == "task-x1" and .hold_kind == "retained")
+    and any(.holds[]; .id == "task-x1" and .source == "backlog")' \
+    "$acceptance/state/home-summary.json" >/dev/null \
+    || fail 'awaiting-acceptance record was not held and routable'
+  pass 'archive-only retention preserves clean remote-reachable copies and refuses deferred approval'
+}
+
 # Build the teardown test's executable search path without lsof, regardless of
 # whether the host installs it in /usr/bin, /usr/sbin, or a package-manager bin.
 make_path_without_lsof() {  # <case-dir>
@@ -4503,6 +4586,7 @@ test_missing_adapter_sibling_refuses_before_cleanup
 test_forced_child_missing_adapter_sibling_refuses_before_cleanup
 test_forced_secondmate_own_missing_adapter_sibling_refuses_before_child_cleanup
 test_retained_sources_still_reach_the_ordinary_refusal
+test_archive_only_preserves_copy_and_deferred_approval
 test_local_only_fork_remote_allows
 test_teardown_closes_the_backlog_item_itself
 test_teardown_closes_a_gerrit_task_with_its_change_url_as_a_note
