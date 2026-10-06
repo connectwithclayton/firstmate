@@ -186,7 +186,7 @@ test_main_direct_terminal_presentation_receipt() {
 test_retained_children_are_retired_from_reconciliation() {
   make_world retained-main
   write_child "$MAIN" child 'done: retained implementation'
-  retain_child "$MAIN" child inactive done
+  retain_child "$MAIN" child inactive "done"
   FM_FAKE_CREW_STATE='done' run_reconcile "$MAIN" --startup
   [ -z "$(wake_count "$MAIN" 'inactive-outcome:')" ] \
     || fail 'retained main child queued another inactive outcome'
@@ -197,7 +197,7 @@ test_retained_children_are_retired_from_reconciliation() {
   bind_secondmate local
   write_mate_meta
   write_child "$MATE" child 'done: retained implementation'
-  retain_child "$MATE" child awaiting-acceptance done
+  retain_child "$MATE" child awaiting-acceptance "done"
   run_report "$MATE" child || fail 'retained report entry point failed'
   FM_FAKE_CREW_STATE='done' run_reconcile "$MATE" --startup
   [ "$(outcome_count "$MATE" reported)" = 0 ] \
