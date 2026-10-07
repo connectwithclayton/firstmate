@@ -497,10 +497,6 @@ ledger_pass() {
       fm_lock_release "$lock"
       continue
     fi
-    if retained_record_valid "$meta"; then
-      fm_lock_release "$lock"
-      continue
-    fi
     report_child_ledger_locked "$id" "$meta" || true
     fm_lock_release "$lock"
   done
@@ -515,7 +511,6 @@ report_child() { # <id>
   meta="$STATE/$id.meta"
   [ -f "$meta" ] && [ ! -L "$meta" ] || return 0
   [ "$(meta_field "$meta" kind)" != secondmate ] || return 0
-  retained_record_valid "$meta" && return 0
   report_child_ledger_locked "$id" "$meta"
 }
 

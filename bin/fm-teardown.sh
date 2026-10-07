@@ -370,6 +370,8 @@ unset _teardown_source
 . "$SCRIPT_DIR/fm-backlog-transition-lib.sh"
 # shellcheck source=bin/fm-backend.sh
 . "$SCRIPT_DIR/fm-backend.sh"
+# shellcheck source=bin/fm-busy-lib.sh
+. "$SCRIPT_DIR/fm-busy-lib.sh"
 # shellcheck source=bin/fm-control-lib.sh
 . "$SCRIPT_DIR/fm-control-lib.sh"
 # shellcheck source=bin/fm-lock-lib.sh
@@ -621,7 +623,7 @@ archive_only_write_record() {
 }
 
 archive_only_task() {
-  local lifecycle mode state_line state_word state_source row_state open_decisions
+  local lifecycle mode state_line state_word state_source worker_line worker_state row_state open_decisions
   lifecycle=$(archive_only_field lifecycle)
   if [ "$lifecycle" = retained ]; then
     mode=$(archive_only_field retained_mode)
@@ -693,6 +695,19 @@ archive_only_task() {
       ;;
     *)
       archive_only_refuse "current state is unavailable${state_line:+ ($state_line)}"
+      return 1
+      ;;
+  esac
+  worker_line=$(fm_busy_classify_meta "$META" "$ID" "$STATE" 2>/dev/null || true)
+  worker_state=${worker_line%% *}
+  case "$worker_state" in
+    idle) ;;
+    busy)
+      archive_only_refuse "worker state is busy${worker_line#busy}"
+      return 1
+      ;;
+    *)
+      archive_only_refuse "worker state is unavailable${worker_line:+ ($worker_line)}"
       return 1
       ;;
   esac

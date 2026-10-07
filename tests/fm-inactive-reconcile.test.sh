@@ -202,11 +202,32 @@ test_retained_children_are_retired_from_reconciliation() {
   retain_child "$MATE" child awaiting-acceptance "done"
   run_report "$MATE" child || fail 'retained report entry point failed'
   FM_FAKE_CREW_STATE='done' run_reconcile "$MATE" --startup
-  [ "$(outcome_count "$MATE" reported)" = 0 ] \
-    || fail 'retained secondmate child published another terminal receipt'
-  ! grep -Fq 'child child done' "$MAIN/state/mate.status" \
-    || fail 'retained secondmate child published another parent outcome'
-  pass 'validated retained children are retired from scan and report reconciliation'
+  [ "$(outcome_count "$MATE" reported)" = 1 ] \
+    || fail 'retained secondmate child did not preserve one terminal receipt'
+  [ "$(grep -c 'child child done' "$MAIN/state/mate.status")" = 1 ] \
+    || fail 'retained secondmate child did not publish exactly one parent outcome'
+  pass 'validated retained children retire inactive scans without retiring owed parent reports'
+}
+
+test_retained_child_retries_failed_parent_delivery() {
+  make_world retained-report-retry
+  bind_secondmate local
+  write_mate_meta
+  write_child "$MATE" child 'failed: retained failure'
+  retain_child "$MATE" child inactive "failed"
+  cp "$MATE/.fm-secondmate-parent" "$WORLD/parent-binding"
+  printf 'schema=fm-secondmate-parent.v1\nroute=invalid\n' > "$MATE/.fm-secondmate-parent"
+  FM_FAKE_CREW_STATE='failed' run_reconcile "$MATE" --startup
+  [ "$(outcome_count "$MATE" pending)" = 1 ] \
+    || fail 'retained child did not preserve its failed parent delivery'
+  cp "$WORLD/parent-binding" "$MATE/.fm-secondmate-parent"
+  FM_FAKE_CREW_STATE='failed' run_reconcile "$MATE"
+  FM_FAKE_CREW_STATE='failed' run_reconcile "$MATE"
+  [ "$(outcome_count "$MATE" reported)" = 1 ] \
+    || fail 'retained child delivery retry did not gain one durable receipt'
+  [ "$(grep -c 'child child failed: retained failure' "$MAIN/state/mate.status")" = 1 ] \
+    || fail 'retained child delivery retry was missing or duplicated'
+  pass 'retained terminal children retry failed parent delivery exactly once'
 }
 
 test_relaunched_generation_is_not_retired_by_old_retention() {
@@ -1094,6 +1115,7 @@ SH
 
 test_main_direct_terminal_presentation_receipt
 test_retained_children_are_retired_from_reconciliation
+test_retained_child_retries_failed_parent_delivery
 test_relaunched_generation_is_not_retired_by_old_retention
 test_branch_ack_retires_inactive_outcome_receipt
 test_unpushed_ci_ready_done_is_not_published

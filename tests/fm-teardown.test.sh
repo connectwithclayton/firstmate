@@ -850,13 +850,55 @@ outcome: passed" run_teardown "$pending_answer" --archive-only \
 
   live=$(make_case archive-only-live)
   prepare_archive_only_refusal_case "$live" busy
-  assert_archive_only_refuses_unchanged "$live" 'current state is working' \
-    'archive-only live-state retention'
+  head=$(git -C "$live/wt" rev-parse HEAD)
+  run_inventory=$(ledger_row passed fm/task-x1 "${head:0:7}" \
+    "$(date +%Y-%m-%d)" "$(date +%H:%M)")
+  set +e
+  out=$(FM_FAKE_NM_RUNS_LIST="$run_inventory" FM_FAKE_AXI_OVERVIEW="count: 1 of 1 total
+runs[1]{id,branch,status,head,pr}:
+  \"01RUN\",fm/task-x1,completed,$head,\"https://example.test/owner/repo/pull/1\"" \
+    FM_FAKE_AXI_STATUS="run:
+  id: \"01RUN\"
+  branch: fm/task-x1
+  status: completed
+  head: \"$head\"
+  pr: \"https://example.test/owner/repo/pull/1\"
+  findings: none
+outcome: passed" run_teardown "$live" --archive-only \
+    --reason 'must preserve active custody' 2>&1)
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail 'archive-only retained a busy worker after completed validation'
+  printf '%s' "$out" | grep -F 'worker state is busy' >/dev/null \
+    || fail "archive-only busy-worker refusal was unclear: $out"
+  ! grep -Fxq 'lifecycle=retained' "$live/state/task-x1.meta" \
+    || fail 'archive-only busy-worker refusal changed lifecycle state'
 
   ambiguous=$(make_case archive-only-ambiguous)
   prepare_archive_only_refusal_case "$ambiguous" unknown
-  assert_archive_only_refuses_unchanged "$ambiguous" 'current state is unavailable' \
-    'archive-only ambiguous-state retention'
+  head=$(git -C "$ambiguous/wt" rev-parse HEAD)
+  run_inventory=$(ledger_row passed fm/task-x1 "${head:0:7}" \
+    "$(date +%Y-%m-%d)" "$(date +%H:%M)")
+  set +e
+  out=$(FM_FAKE_NM_RUNS_LIST="$run_inventory" FM_FAKE_AXI_OVERVIEW="count: 1 of 1 total
+runs[1]{id,branch,status,head,pr}:
+  \"01RUN\",fm/task-x1,completed,$head,\"https://example.test/owner/repo/pull/1\"" \
+    FM_FAKE_AXI_STATUS="run:
+  id: \"01RUN\"
+  branch: fm/task-x1
+  status: completed
+  head: \"$head\"
+  pr: \"https://example.test/owner/repo/pull/1\"
+  findings: none
+outcome: passed" run_teardown "$ambiguous" --archive-only \
+    --reason 'must preserve uncertain custody' 2>&1)
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail 'archive-only retained an unreadable worker after completed validation'
+  printf '%s' "$out" | grep -F 'worker state is unavailable' >/dev/null \
+    || fail "archive-only unreadable-worker refusal was unclear: $out"
+  ! grep -Fxq 'lifecycle=retained' "$ambiguous/state/task-x1.meta" \
+    || fail 'archive-only unreadable-worker refusal changed lifecycle state'
 
   pending_input=$(make_case archive-only-pending-input)
   prepare_archive_only_refusal_case "$pending_input" idle
