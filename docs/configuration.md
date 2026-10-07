@@ -366,7 +366,7 @@ When a spawn is interrupted after launch delivery began, its exit path re-reads 
 `bin/fm-teardown.sh <id> --archive-only` is the non-destructive retirement path for a terminal ordinary task whose local copy and runtime evidence must be preserved.
 It appends a validated retained lifecycle to the task record without closing the backlog row, stopping or removing an endpoint, touching a copy or branch, or deleting status, inbox, validation, board, recovery, or artifact records.
 The default `inactive` disposition requires a Done backlog row and a `done` or `failed` current-state proof from `fm-crew-state.sh`; `awaiting-acceptance` is reserved for an In flight row and does not certify acceptance.
-The operation refuses unavailable, working, paused, blocked, or captain-held state, active task-owned boards, pending answers, and unread steering input, and it is idempotent only for the original retained disposition and provenance.
+The operation refuses unavailable, working, paused, or blocked state, active task-owned boards, open status approvals or answers, pending durable answers, and unread steering input; inactive retention also refuses a deferred captain approval, while awaiting-acceptance preserves an existing backlog hold.
 The structured home summary projects an inactive retained record out of current work and projects an awaiting-acceptance record as held queued work while retaining endpoint uncertainty warnings and all routing evidence.
 Use ordinary teardown only when its landed-work and cleanup checks authorize physical cleanup.
 
