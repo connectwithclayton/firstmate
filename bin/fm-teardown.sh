@@ -561,7 +561,7 @@ archive_only_refuse() {
 }
 
 archive_only_task_board() {
-  local rec owner
+  local rec owner handled
   for rec in "$STATE/procevent"/*.source; do
     [ -f "$rec" ] && [ ! -L "$rec" ] || continue
     owner=$(grep '^owner_task=' "$rec" 2>/dev/null | tail -1 | cut -d= -f2- || true)
@@ -569,6 +569,10 @@ archive_only_task_board() {
   done
   for rec in "$STATE/procevent-inbox"/*.owner-task; do
     [ -f "$rec" ] && [ ! -L "$rec" ] || continue
+    handled=${rec%.owner-task}.handled
+    if [ -f "$handled" ] && [ ! -L "$handled" ]; then
+      continue
+    fi
     grep -Fxq -- "$ID" "$rec" 2>/dev/null && return 0
   done
   return 1

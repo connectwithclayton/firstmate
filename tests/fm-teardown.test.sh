@@ -686,7 +686,7 @@ assert_archive_only_refuses_unchanged() {
 }
 
 test_archive_only_preserves_copy_and_deferred_approval() {
-  local case_dir approval acceptance acceptance_without_hold pending_answer live ambiguous pending_input task_board
+  local case_dir approval acceptance acceptance_without_hold pending_answer live ambiguous pending_input task_board handled_board registered_source
   local run_inventory head branch out rc gen
   case_dir=$(make_case archive-only-preserve)
   write_meta "$case_dir" no-mistakes ship
@@ -866,6 +866,20 @@ outcome: passed" run_teardown "$pending_answer" --archive-only \
   assert_archive_only_refuses_unchanged "$pending_input" \
     'pending steering input remains unread' 'archive-only pending-input retention'
 
+  handled_board=$(make_case archive-only-handled-task-board)
+  prepare_archive_only_refusal_case "$handled_board" idle
+  mkdir -p "$handled_board/state/procevent-inbox"
+  printf '%s\n' 'task-x1' \
+    > "$handled_board/state/procevent-inbox/review.1.owner-task"
+  : > "$handled_board/state/procevent-inbox/review.1.handled"
+  out=$(run_teardown "$handled_board" --archive-only \
+    --reason 'handled board no longer blocks retained custody' 2>&1) \
+    || fail "handled task-owned-board retention unexpectedly refused: $out"
+  [ -d "$handled_board/wt" ] \
+    || fail 'handled task-owned-board retention returned the preserved copy'
+  grep -Fxq 'lifecycle=retained' "$handled_board/state/task-x1.meta" \
+    || fail 'handled task-owned-board retention did not mark the runtime record'
+
   task_board=$(make_case archive-only-task-board)
   prepare_archive_only_refusal_case "$task_board" idle
   mkdir -p "$task_board/state/procevent-inbox"
@@ -873,7 +887,15 @@ outcome: passed" run_teardown "$pending_answer" --archive-only \
     > "$task_board/state/procevent-inbox/review.1.owner-task"
   assert_archive_only_refuses_unchanged "$task_board" \
     'a task-owned board remains registered' 'archive-only task-owned-board retention'
-  pass 'archive-only retention preserves clean remote-reachable copies and refuses deferred approval'
+
+  registered_source=$(make_case archive-only-registered-source)
+  prepare_archive_only_refusal_case "$registered_source" idle
+  mkdir -p "$registered_source/state/procevent"
+  printf '%s\n' 'owner_task=task-x1' \
+    > "$registered_source/state/procevent/active.source"
+  assert_archive_only_refuses_unchanged "$registered_source" \
+    'a task-owned board remains registered' 'archive-only registered-source retention'
+  pass 'archive-only retention preserves clean remote-reachable copies and refuses handled, active, and deferred cases'
 }
 
 # Build the teardown test's executable search path without lsof, regardless of
