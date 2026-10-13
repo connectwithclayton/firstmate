@@ -119,10 +119,13 @@
 # cleanup step, teardown verifies record exclusivity: no OTHER task record in
 # this home or any locally registered Firstmate home may name the same live path
 # in its worktree= or home=. One live path with two task records is the reuse
-# collision itself, whichever record is stale. The one exception is a slot whose
-# owner claim (below) names another task: this teardown is then records-only and
-# touches nothing under the slot, so the scan is skipped rather than stranding
-# the stale record and, with it, the claimant's own teardown.
+# collision itself, whichever record is stale. The exceptions are a slot whose
+# owner claim (below) names another task, and a slot whose claim still names
+# this task but Treehouse reports a complete durable lease to a different
+# persistent second mate whose local registry and exactly one matching
+# kind=secondmate record name that same slot as home: this teardown is then
+# records-only and touches nothing under the slot, so the scan is skipped rather
+# than stranding the stale record and, with it, the current occupant's teardown.
 # That scan alone cannot prove THIS record is the current owner, because the task
 # that took the slot next may leave no record it can reach - its own worker may
 # have exited and its record been cleaned up, or it may live in a home this
@@ -130,9 +133,10 @@
 # returned out from under a live worker (observed 2026-09-07). So teardown also
 # reads the slot's own owner claim, written by bin/fm-spawn.sh at the moment the
 # slot is taken and dropped here once it is genuinely returned; bin/fm-wake-lib.sh
-# owns the claim, its location, and its states. A claim naming another task is
+# owns the claim, its location, and its states. A claim naming another task, or
+# a proved durable secondmate lease on a claim that still names this task, is
 # proof of reassignment: the slot is no longer this task's, so teardown warns,
-# names the claimant, and then finishes only this task's own cleanup - endpoint,
+# names the occupant, and then finishes only this task's own cleanup - endpoint,
 # status, records, checks, backlog - while every step that would read or touch
 # that slot is skipped: no process kill under it, no dirty or landed-work
 # inspection of it, no branch or hook removal in it, no Treehouse return, and
@@ -149,7 +153,15 @@
 # strand every task in flight across that change on no evidence at all.
 # Why Treehouse's own state cannot answer this for crewmate slots, and why the
 # claim file sits on top of it, is owned by bin/fm-wake-lib.sh's slot-owner
-# claim comment.
+# claim comment. A durable secondmate lease can answer, but only when status is
+# leased with both lease_id and lease_holder, the holder is not this task, the
+# claim's home is this teardown's home, the holder is a local registered
+# secondmate whose home is this slot, and exactly one matching secondmate record
+# names that same path; missing, duplicate, unreadable, or contradictory
+# evidence refuses with nothing changed. treehouse status --json lists every
+# pool slot, so a single non-leased match (in-use, available, dirty, unverified,
+# empty lease fields) is not reassignment and leaves the original claim and scan
+# rules in force.
 # The recorded endpoint's exact task identity and the record's spawn incarnation
 # are validated separately
 # before cleanup. Its current working directory is only incidental process
@@ -2419,6 +2431,10 @@ collect_local_firstmate_states() {
   TREEHOUSE_OWNER_STATES=("${FM_LOCAL_FIRSTMATE_STATES[@]}")
 }
 
+# When this task's slot claim is still mine, prove the slot is now a durable
+# secondmate home (header: Worktree-slot ownership). Return 0 after rewriting
+# FM_TREEHOUSE_SLOT_OWNER to other, 1 when there is no such lease, and 2 when
+# Treehouse reports or may hold a lease that cannot be proved.
 verified_secondmate_slot_reassignment() {  # <project> <worktree> <stale-task-id>
   local project=$1 worktree=$2 stale_id=$3 slot status_json lease_state holder marker_home current_home
   local states state_dir meta kind home record_path field record_count=0 matched_path
@@ -2520,7 +2536,8 @@ require_exclusive_task_worktree_slot() {
 }
 
 # Positive slot ownership, read from the claim the task that took the slot wrote
-# into the slot itself (bin/fm-wake-lib.sh owns the claim and its states).
+# into the slot itself (bin/fm-wake-lib.sh owns the claim and its states) and,
+# when that claim is still mine, from verified_secondmate_slot_reassignment.
 #
 # For a slot this task still claims, or one with no claim, the record scan above
 # proves that no OTHER task record names it. It cannot prove that THIS record is
@@ -2529,7 +2546,9 @@ require_exclusive_task_worktree_slot() {
 # up, or it may belong to a home this machine does not register. The claim closes that gap from the other side - it names the
 # task that actually took the slot, and it is written under the same project lock
 # that allocates it - so a claim naming another task is proof the slot was
-# reassigned after this record was written.
+# reassigned after this record was written. A still-mine claim on a slot now
+# durably leased to a persistent second mate is the same reassignment; the
+# header owns the proof and the refuse-when-uncertain boundary.
 #
 # A claim naming another task does not refuse: it means the slot is no longer
 # this task's, so the record's own cleanup proceeds and every slot step is
