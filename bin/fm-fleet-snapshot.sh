@@ -378,9 +378,9 @@ status_event_json() {  # <observed-status-log> [<contract-path>]
     '{path:$path,present:$present,kind:"event_history",last_event:{state:$verb,note:$note,raw:$raw,age_seconds:$age}}'
 }
 
-first_pr_url_in_file() {  # <file>
+ready_pr_url_in_file() {  # <file>
   [ -f "$1" ] || return 1
-  grep -Eo 'https?://[^[:space:])"]+/pull/[0-9]+' "$1" 2>/dev/null | head -1
+  status_ready_pr_urls < "$1" | head -1
 }
 
 backlog_json() (  # [<backlog-path>] - defaults to this home's $BACKLOG
@@ -786,7 +786,7 @@ task_json_lines() {
     elif [ -n "$pr" ]; then
       pr_source=meta
     else
-      pr_from_status=$(first_pr_url_in_file "$status_log" || true)
+      pr_from_status=$(ready_pr_url_in_file "$status_log" || true)
       pr=$pr_from_status
       pr_source=status_event
       if [ -z "$pr" ]; then

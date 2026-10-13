@@ -181,12 +181,13 @@ project() {
     --argjson now "$EPOCH" --argjson max_age "$MAX_AGE" --argjson errors "$ERRORS" \
     --arg all "${2:-}" '
     projected($input[0];$saved[0];$now;$max_age) as $rows
-    | summary($rows;($errors + (if $input[0].backlog.present == true then 0 else 1 end)))
+    | unresolved_prs($input[0];$saved[0]) as $unresolved
+    | summary($rows;($errors + (if $input[0].backlog.present == true then 0 else 1 end));$unresolved)
     # Final rows never expire; a home holding only final rows is valid from now.
     | .valid_until = (if ($rows | length) > 0 and all($rows[]; .final) then $now else .valid_until end) + $max_age
     | .captain_omitted = ([0, (.captain | length) - 20] | max)
     | .captain |= .[:20]
-    | . + (if $all == "--all" then {rows:$rows} else {} end)'
+    | . + (if $all == "--all" then {rows:$rows,unresolved:$unresolved} else {} end)'
 }
 
 acquire() {

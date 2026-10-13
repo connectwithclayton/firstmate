@@ -85,6 +85,15 @@ def known($input; $saved):
   # A retired record ends that task's ownership even while a backlog link remains.
   | [$saved[] | .task as $task | .records[] | select(.retired != null) | {task:$task,url}] as $retired
   | map(select(. as $pair | any($retired[]; .task == $pair.task and .url == $pair.url) | not));
+def unresolved_prs($input; $saved):
+  known($input; $saved) as $known
+  | [$saved[] | .task as $task
+    | .records[]
+    | select(.kind == "pr" and .retired == null)
+    | select(.ownership == null or .ownership.state == "ambiguous")
+    | {task:$task,url,provenance:(.ownership.state // "legacy")} as $entry
+    | select(any($known[]; .task == $entry.task and .url == $entry.url) | not)
+    | $entry];
 def latest_checks:
   group_by(.name) | map(sort_by([(.started_at // ""),(.id // 0)]) | last);
 def projected($input; $saved; $now; $max_age):
@@ -157,15 +166,16 @@ def projected($input; $saved; $now; $max_age):
   | group_by(.url)
   | map(. as $owners | sort_by(if .actor == "captain" then 0 elif .actor == "fleet" then 1 else 2 end) | first
       | . + {tasks:($owners | map(.task) | unique)});
-def summary($rows; $errors):
+def summary($rows; $errors; $unresolved):
   {known:($rows | length),checked:([$rows[] | select(.checked)] | length),
    counts:{captain:([$rows[] | select(.actor == "captain")] | length),
      fleet:([$rows[] | select(.actor == "fleet")] | length),
      maintainer:([$rows[] | select(.actor == "maintainer")] | length),
      nobody:([$rows[] | select(.actor == "nobody")] | length)},
-   unmeasured:([$rows[] | select(.actor == "unmeasured")] | length),
-   complete:($errors == 0 and all($rows[]; .checked)),
-   proven_clear:($errors == 0 and all($rows[]; .checked and .actor != "captain")),
+   unmeasured:(([$rows[] | select(.actor == "unmeasured")] | length) + ($unresolved | length)),
+   unresolved_records:($unresolved | length),
+   complete:($errors == 0 and ($unresolved | length) == 0 and all($rows[]; .checked)),
+   proven_clear:($errors == 0 and ($unresolved | length) == 0 and all($rows[]; .checked and .actor != "captain")),
    stale_verdicts:([$rows[].stale_verdicts] | add // 0),
    missing_verdicts:([$rows[].missing_verdicts] | add // 0),
    unreadable_records:$errors,

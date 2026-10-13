@@ -741,6 +741,11 @@ status_line_note() {  # <status-line> -> text after the first colon, trimmed
   fi
   printf '%s' "$n"
 }
+
+status_ready_pr_urls() {
+  LC_ALL=C sed -nE 's|^done( \[at=[^]]*\])?: PR (https?://[^[:space:])"]+/pull/[0-9]+)( checks green)?$|\2|p'
+}
+
 _fm_decision_key() {  # <status-line> [<keyless>] -> key slug, or <keyless> (default "default") when no token
   local k unstamped
   _fm_status_unstamped "$1" unstamped

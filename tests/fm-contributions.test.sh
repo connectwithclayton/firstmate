@@ -123,7 +123,7 @@ SH
 }
 
 test_scout_pr_state_cannot_reactivate_after_promotion() {
-  local home input out pending poll_out
+  local home input out pending poll_out fleet_out
   home=$(new_home scout-pr-promotion)
   record "$home" scout 9 open mergeable
   printf '# Backlog\n\nManual home without a structured task row.\n' > "$home/data/backlog.md"
@@ -132,6 +132,7 @@ test_scout_pr_state_cannot_reactivate_after_promotion() {
     "window=fm-scout" \
     "worktree=$home/wt" \
     'kind=scout'
+  printf 'paused: waiting on https://github.com/o/r/pull/9\n' > "$home/state/scout.status"
   cat > "$home/data/scout/brief.md" <<'EOF'
 # Task
 ## Captain's intent
@@ -158,6 +159,11 @@ SH
     and .records[0].ownership == {state:"rejected",kind:"scout",source:"legacy-scout"}
     and (.records[0].pending | length) == 1' "$home/data/scout/contributions.json" >/dev/null \
     || fail 'promotion did not retain stale scout PR state as rejected provenance'
+  fleet_out=$(with_home "$home" "$ROOT/bin/fm-fleet-snapshot.sh" --json) \
+    || fail 'could not collect promoted fleet snapshot'
+  printf '%s' "$fleet_out" | jq -e '.tasks[] | select(.id == "scout")
+    | .kind == "ship" and .pr == {url:null,source:"absent",head:null}' >/dev/null \
+    || fail "promotion reactivated a PR mentioned in scout status prose: $fleet_out"
   input="$home/input.json"
   with_home "$home" "$ROOT/bin/fm-fleet-snapshot.sh" --contribution-input > "$input" \
     || fail 'could not collect promoted contribution input'
@@ -165,6 +171,10 @@ SH
     || fail 'could not project promoted contribution state'
   printf '%s' "$out" | jq -e '.known == 0 and .rows == []' >/dev/null \
     || fail "promotion reactivated stale scout PR ownership: $out"
+  pending=$(with_home "$home" "$ROOT/bin/fm-contributions.sh" pending) \
+    || fail 'could not read promoted pending contributions'
+  printf '%s' "$pending" | jq -e '. == []' >/dev/null \
+    || fail "promotion exposed stale scout pending state: $pending"
   poll_out=$(with_home "$home" "$ROOT/bin/fm-contributions.sh" poll) \
     || fail 'promoted contribution poll failed'
   [ -z "$poll_out" ] || fail "promoted scout residue emitted a wake: $poll_out"
@@ -173,7 +183,7 @@ SH
 }
 
 test_identity_gone_legacy_pr_is_retained_for_reconciliation() {
-  local home input out pending poll_out
+  local home input out before pending poll_out
   home=$(new_home identity-gone-legacy)
   record "$home" ghost 10 open mergeable
   printf '# Backlog\n\nManual home without a structured task row.\n' > "$home/data/backlog.md"
@@ -189,6 +199,16 @@ SH
     || fail 'could not read identity-gone legacy pending contributions'
   printf '%s' "$pending" | jq -e '. == []' >/dev/null \
     || fail "identity-gone legacy PR exposed pending ownership: $pending"
+  input="$home/input.json"
+  with_home "$home" "$ROOT/bin/fm-fleet-snapshot.sh" --contribution-input > "$input" \
+    || fail 'could not collect identity-gone contribution input'
+  before=$(with_home "$home" "$ROOT/bin/fm-contributions.sh" snapshot "$input" --all) \
+    || fail 'could not project unmigrated identity-gone legacy state'
+  printf '%s' "$before" | jq -e '.known == 0 and .rows == []
+    and .unmeasured == 1 and .unresolved_records == 1
+    and .complete == false and .proven_clear == false
+    and .unresolved == [{task:"ghost",url:"https://github.com/o/r/pull/10",provenance:"legacy"}]' >/dev/null \
+    || fail "unmigrated identity-gone PR falsely proved clear coverage: $before"
   poll_out=$(with_home "$home" "$ROOT/bin/fm-contributions.sh" poll) \
     || fail 'identity-gone legacy migration poll failed'
   [ -z "$poll_out" ] || fail "identity-gone legacy PR emitted an outcome: $poll_out"
@@ -197,13 +217,13 @@ SH
     and .records[0].ownership == {state:"ambiguous",kind:null,source:"legacy-unclassified"}
     and (.records[0].pending | length) == 1' "$home/data/ghost/contributions.json" >/dev/null \
     || fail 'identity-gone legacy PR was not retained as ambiguous reconciliation data'
-  input="$home/input.json"
-  with_home "$home" "$ROOT/bin/fm-fleet-snapshot.sh" --contribution-input > "$input" \
-    || fail 'could not collect identity-gone contribution input'
   out=$(with_home "$home" "$ROOT/bin/fm-contributions.sh" snapshot "$input" --all) \
     || fail 'could not project identity-gone legacy state'
-  printf '%s' "$out" | jq -e '.known == 0 and .rows == []' >/dev/null \
-    || fail "ambiguous legacy PR remained owned: $out"
+  printf '%s' "$out" | jq -e '.known == 0 and .rows == []
+    and .unmeasured == 1 and .unresolved_records == 1
+    and .complete == false and .proven_clear == false
+    and .unresolved == [{task:"ghost",url:"https://github.com/o/r/pull/10",provenance:"ambiguous"}]' >/dev/null \
+    || fail "ambiguous legacy PR did not remain unresolved and non-owning: $out"
   pass 'identity-gone legacy PR remains stored without ownership or monitoring'
 }
 
