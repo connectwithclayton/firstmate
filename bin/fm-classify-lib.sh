@@ -742,8 +742,32 @@ status_line_note() {  # <status-line> -> text after the first colon, trimmed
   printf '%s' "$n"
 }
 
+status_pr_url_from_done_note() {  # <note>
+  local note=$1 url pattern
+  case "$note" in
+    PR\ https://*|PR\ http://*) ;;
+    *) return 1 ;;
+  esac
+  url=${note#PR }
+  url=${url%% *}
+  pattern='^https?://[^[:space:])"]+/(pulls?/[1-9][0-9]*|-/merge_requests/[1-9][0-9]*|c/[^[:space:])"]+/\+/[1-9][0-9]*)$'
+  [[ "$url" =~ $pattern ]] || return 1
+  printf '%s\n' "$url"
+}
+
 status_ready_pr_urls() {
-  LC_ALL=C sed -nE 's#^done( \[at=[^]]*\])?: PR (https?://[^[:space:])"]+/(pulls?/[1-9][0-9]*|-/merge_requests/[1-9][0-9]*|c/[^[:space:])"]+/[+]/[1-9][0-9]*))( checks green| published for review)?$#\2#p'
+  local line verb note url
+  while IFS= read -r line || [ -n "$line" ]; do
+    status_line_verb "$line" verb
+    [ "$verb" = done ] || continue
+    note=$(status_line_note "$line")
+    url=$(status_pr_url_from_done_note "$note") || continue
+    case "$note" in
+      "PR $url"|"PR $url "*checks\ green*|"PR $url "*published\ for\ review*) ;;
+      *) continue ;;
+    esac
+    printf '%s\n' "$url"
+  done
 }
 
 _fm_decision_key() {  # <status-line> [<keyless>] -> key slug, or <keyless> (default "default") when no token

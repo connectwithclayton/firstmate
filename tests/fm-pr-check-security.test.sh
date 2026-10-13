@@ -815,6 +815,31 @@ test_scout_status_pr_mention_does_not_register() {
   pass "scout PR mentions stay non-owning across promotion while exact delivery and re-arm succeed"
 }
 
+test_supported_ready_status_variants_register() {
+  local spec name line dir url
+  url=https://github.com/o/r/pull/92
+  for spec in \
+    'key-before|done [key=fix]: PR https://github.com/o/r/pull/92 checks green' \
+    'key-after|done: [key=fix] PR https://github.com/o/r/pull/92' \
+    'ready-suffix|done: PR https://github.com/o/r/pull/92 checks green, risk low' \
+    'ready-dash|done: PR https://github.com/o/r/pull/92 - checks green' \
+    'ready-period|done: PR https://github.com/o/r/pull/92 checks green.' \
+    'ready-parentheses|done: PR https://github.com/o/r/pull/92 (checks green)'; do
+    name=${spec%%|*}
+    line=${spec#*|}
+    dir=$(make_case "ready-status-$name")
+    write_task_meta "$dir"
+    printf '%s\n' "$line" > "$dir/home/state/task-a.status"
+    run_check_entry_unprepared "$dir" task-a "$url" > "$dir/stdout" 2> "$dir/stderr" \
+      || fail "supported ready status did not authorize registration: $line: $(cat "$dir/stderr")"
+    grep -qxF "pr=$url" "$dir/home/state/task-a.meta" \
+      || fail "supported ready status did not record ownership: $line"
+    fm_pr_poll_artifacts_valid "$dir/home/state" task-a "$POLL" \
+      || fail "supported ready status did not publish an authenticated poll: $line"
+  done
+  pass "supported keyed and suffixed ready statuses authorize registration"
+}
+
 # With no forge-reported head (gh cannot supply one), the named head is the
 # worker copy's HEAD, and a HEAD that exists only there is refused.
 test_unpushed_named_head_refuses_registration() {
@@ -2885,34 +2910,41 @@ test_scout_cleanup_skips_unrelated_control_locks() {
   pass "scout cleanup skips ordinary task control locks"
 }
 
-test_scout_metadata_cleanup_preserves_partial_poll() {
-  local dir state rc
-  dir=$(make_case scout-partial-poll-recovery)
-  state="$dir/home/state"
-  fm_write_meta "$state/scout.meta" \
-    'window=session:fm-scout' \
-    "worktree=$dir/wt" \
-    "project=$dir/project" \
-    'kind=scout' \
-    'mode=scout' \
-    'backend=tmux' \
-    'pr=https://github.com/o/r/pull/93' \
-    'pr_head=0123456789abcdef0123456789abcdef01234567'
-  printf 'partial generation\n' > "$state/scout.pr-poll"
-  chmod 0600 "$state/scout.pr-poll"
-  add_stop_custom_check "$dir"
+test_scout_metadata_cleanup_retires_partial_poll() {
+  local shape dir state rc
+  for shape in data-only data-and-registration; do
+    dir=$(make_case "scout-partial-poll-$shape")
+    state="$dir/home/state"
+    fm_write_meta "$state/scout.meta" \
+      'window=session:fm-scout' \
+      "worktree=$dir/wt" \
+      "project=$dir/project" \
+      'kind=scout' \
+      'mode=scout' \
+      'backend=tmux' \
+      'pr=https://github.com/o/r/pull/93' \
+      'pr_head=0123456789abcdef0123456789abcdef01234567'
+    seed_canonical_poll "$dir" scout https://github.com/o/r/pull/93
+    rm -f "$state/scout.check.sh"
+    [ "$shape" = data-and-registration ] || rm -f "$state/scout.pr-poll-registration"
+    add_stop_custom_check "$dir"
 
-  set +e
-  run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/watch.out" 2> "$dir/watch.err"
-  rc=$?
-  set -e
-  [ "$rc" -eq 0 ] || fail "partial scout poll recovery failed: $(cat "$dir/watch.err")"
-  grep -qx 'pr=https://github.com/o/r/pull/93' "$state/scout.meta" \
-    || fail "partial scout poll lost its recovery identity"
-  [ -f "$state/scout.pr-poll" ] || fail "partial scout poll sidecar disappeared without authenticated retirement"
-  [ "$(cat "$dir/watch.out")" = "check: stale scout PR metadata could not be retired" ] \
-    || fail "partial scout poll did not surface recovery failure: $(cat "$dir/watch.out")"
-  pass "partial scout poll preserves identity for authenticated recovery"
+    set +e
+    FM_TEST_GH_LOG="$dir/gh.log" FM_TEST_GH_STATE=MERGED \
+      run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/watch.out" 2> "$dir/watch.err"
+    rc=$?
+    set -e
+    [ "$rc" -eq 0 ] || fail "partial scout poll cleanup failed for $shape: $(cat "$dir/watch.err")"
+    assert_poll_absent "$state" scout
+    ! grep -qE '^(pr|pr_head)=' "$state/scout.meta" \
+      || fail "partial scout poll cleanup retained identity for $shape"
+    [ ! -s "$dir/gh.log" ] || fail "partial scout poll cleanup queried the forge for $shape"
+    case "$(cat "$dir/watch.out")" in
+      check:*z-stop.check.sh:*stop-cycle) ;;
+      *) fail "partial scout poll cleanup did not converge for $shape: $(cat "$dir/watch.out")" ;;
+    esac
+  done
+  pass "watcher retires interrupted scout poll publications"
 }
 
 test_retirement_crash_recovery() {
@@ -3889,7 +3921,7 @@ test_persistent_secondmate_retirement_is_poll_only
 test_scout_poll_residue_is_retired_before_execution
 test_scout_metadata_cleanup_recovers_without_poll_artifacts
 test_scout_cleanup_skips_unrelated_control_locks
-test_scout_metadata_cleanup_preserves_partial_poll
+test_scout_metadata_cleanup_retires_partial_poll
 test_retirement_crash_recovery
 test_external_merge_transition_retires_only_terminal_poll
 test_retirement_refuses_replacement_and_nonterminal_results
@@ -3899,6 +3931,7 @@ test_invalid_entrypoints_have_zero_side_effects
 test_draft_pull_request_is_not_armed
 test_secondmate_record_refuses_a_pr_watch
 test_scout_status_pr_mention_does_not_register
+test_supported_ready_status_variants_register
 test_unpushed_named_head_refuses_registration
 test_direct_pr_unpushed_commit_refuses_registration
 test_valid_recording_and_merge_derivation

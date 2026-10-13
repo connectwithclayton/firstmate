@@ -2617,30 +2617,50 @@ printf '%s\n' "$FM_WATCH_DELIVERY_IDENTITY" > "$WATCH_LOCK/pid-identity" 2>/dev/
 [ -e "$STATE/.last-heartbeat" ] || touch "$STATE/.last-heartbeat"
 
 clear_orphaned_scout_pr_identities() {
-  local meta id control url failed=0
+  local meta id url path partial_failed failed=0
   for meta in "$STATE"/*.meta; do
     [ -f "$meta" ] && [ ! -L "$meta" ] || continue
     id=$(basename "$meta" .meta)
     fm_pr_task_id_valid "$id" || continue
     [ "$(fm_meta_get "$meta" kind)" = scout ] || continue
     grep -q '^pr=' "$meta" || continue
-    control="$STATE/.control-$id.lock"
-    fm_lock_acquire_wait "$control" || { failed=1; continue; }
+    PR_POLL_CONTROL_LOCK="$STATE/.control-$id.lock"
+    if ! fm_lock_acquire_wait "$PR_POLL_CONTROL_LOCK"; then
+      PR_POLL_CONTROL_LOCK=
+      failed=1
+      continue
+    fi
+    PR_POLL_PUBLISH_LOCK="$STATE/.pr-poll-publish-$id.lock"
+    if ! fm_lock_acquire_wait "$PR_POLL_PUBLISH_LOCK"; then
+      PR_POLL_PUBLISH_LOCK=
+      pr_poll_control_release || true
+      failed=1
+      continue
+    fi
     if [ "$(fm_meta_get "$meta" kind)" = scout ] && grep -q '^pr=' "$meta"; then
       if fm_pr_poll_snapshot_capture "$STATE" "$id" "$SCRIPT_DIR/fm-pr-poll.sh"; then
         :
-      elif [ ! -e "$STATE/$id.check.sh" ] && [ ! -L "$STATE/$id.check.sh" ] \
-        && [ ! -e "$STATE/$id.pr-poll" ] && [ ! -L "$STATE/$id.pr-poll" ] \
-        && [ ! -e "$STATE/$id.pr-poll-registration" ] && [ ! -L "$STATE/$id.pr-poll-registration" ] \
-        && [ ! -e "$STATE/$id.pr-poll-retirement" ] && [ ! -L "$STATE/$id.pr-poll-retirement" ] \
+      elif [ ! -e "$STATE/$id.pr-poll-retirement" ] && [ ! -L "$STATE/$id.pr-poll-retirement" ] \
         && fm_pr_metadata_identity_parse "$meta"; then
         url=$FM_PR_META_URL
-        fm_pr_scout_metadata_identity_clear "$STATE" "$id" "$url" || failed=1
+        partial_failed=0
+        for path in "$STATE/$id.check.sh" "$STATE/$id.pr-poll-registration" "$STATE/$id.pr-poll"; do
+          if [ -e "$path" ] || [ -L "$path" ]; then
+            rm -f -- "$path" || partial_failed=1
+          fi
+          [ ! -e "$path" ] && [ ! -L "$path" ] || partial_failed=1
+        done
+        if [ "$partial_failed" -eq 0 ]; then
+          fm_pr_scout_metadata_identity_clear "$STATE" "$id" "$url" || failed=1
+        else
+          failed=1
+        fi
       else
         failed=1
       fi
     fi
-    fm_lock_release "$control" || failed=1
+    pr_poll_publish_release || failed=1
+    pr_poll_control_release || failed=1
   done
   return "$failed"
 }

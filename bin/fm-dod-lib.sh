@@ -585,14 +585,7 @@ fm_dod_should_gate_ship_done() {  # <kind> <mode> <line>
 
 # The PR/MR URL from a `done: PR <url>...` note, or empty.
 fm_dod_pr_url_from_done_note() {  # <note>
-  local note=$1 url
-  case "$note" in
-    PR\ https://*|PR\ http://*) ;;
-    *) return 1 ;;
-  esac
-  url=${note#PR }
-  url=${url%% *}
-  printf '%s\n' "$url"
+  status_pr_url_from_done_note "$1"
 }
 
 # The last recorded <key>= value in <meta>, or empty.
