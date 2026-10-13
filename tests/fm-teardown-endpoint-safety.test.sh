@@ -26,6 +26,13 @@ exit 0
 SH
   cat > "$TMP_ROOT/$dir/fakebin/treehouse" <<'SH'
 #!/usr/bin/env bash
+if [ "${1:-}" = status ]; then
+  if [ -n "${FM_TREEHOUSE_STATUS_JSON_FILE:-}" ] && [ -f "$FM_TREEHOUSE_STATUS_JSON_FILE" ]; then
+    exec cat "$FM_TREEHOUSE_STATUS_JSON_FILE"
+  fi
+  printf '[]\n'
+  exit 0
+fi
 printf 'treehouse' >> "${FM_RUNTIME_LOG:?}"
 printf ' <%s>' "$@" >> "${FM_RUNTIME_LOG:?}"
 printf '\n' >> "${FM_RUNTIME_LOG:?}"
@@ -56,8 +63,15 @@ claim_pool_slot() {  # <case> <task-id> [home]
 run_case() {  # <case> <id>
   local dir=$1 id=$2
   FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" \
-  FM_RUNTIME_LOG="$dir/runtime.log" PATH="$dir/fakebin:$PATH" \
-    "$TEARDOWN" "$id" --force
+  FM_RUNTIME_LOG="$dir/runtime.log" FM_TREEHOUSE_STATUS_JSON_FILE="$dir/treehouse-status.json" \
+  PATH="$dir/fakebin:$PATH" "$TEARDOWN" "$id" --force
+}
+
+run_case_without_force() {  # <case> <id>
+  local dir=$1 id=$2
+  FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" \
+  FM_RUNTIME_LOG="$dir/runtime.log" FM_TREEHOUSE_STATUS_JSON_FILE="$dir/treehouse-status.json" \
+  PATH="$dir/fakebin:$PATH" "$TEARDOWN" "$id"
 }
 
 assert_refused_without_mutation() {  # <case> <id> <description>
@@ -1020,6 +1034,91 @@ test_stale_record_on_claimed_slot_retires_then_claimant_tears_down() {
   pass "fm-teardown: a stale record on a claimed slot retires, then the claimant tears down"
 }
 
+test_stale_self_claim_retires_only_after_verified_secondmate_lease() {
+  local dir id=stale-task other=orbit-mate slot marker_before worker
+  dir=$(make_case stale-self-claim-secondmate-lease)
+  mark_case_as_treehouse_pool "$dir"
+  slot=$(cd "$dir/pool/1/project" && pwd -P)
+  git -C "$slot" add sentinel
+  git -C "$slot" -c user.name=test -c user.email=test@example.invalid commit -qm secondmate-files
+  [ -z "$(git -C "$dir/worktree" status --porcelain)" ] \
+    || fail "verified secondmate fixture worktree is not clean"
+  fm_write_meta "$dir/home/state/$id.meta" \
+    "window=firstmate:fm-$id" "endpoint_task_id=$id" "spawn_gen=1" \
+    "worktree=$dir/worktree" "project=$dir/project" "kind=ship"
+  fm_write_meta "$dir/home/state/$other.meta" \
+    "kind=secondmate" "home=$slot" "worktree=$slot" "project=$dir/project"
+  printf '%s\n' "- $other - fixture (home: $slot; scope: test; projects: project; added 2026-01-01)" \
+    > "$dir/home/data/secondmates.md"
+  claim_pool_slot "$dir" "$id" "$dir/home"
+  marker_before=$(cat "$dir/pool/1/.fm-slot-owner")
+  printf '[{"name":"1","path":"%s","status":"leased","lease_id":"fixture-lease","lease_holder":"%s"}]\n' \
+    "$slot" "$other" > "$dir/treehouse-status.json"
+  ( cd "$slot" && exec sleep 30 ) &
+  worker=$!
+
+  run_case_without_force "$dir" "$id" > "$dir/stdout" 2> "$dir/stderr" \
+    || fail "verified secondmate lease did not allow stale records-only cleanup: $(cat "$dir/stderr")"
+  assert_absent "$dir/home/state/$id.meta" "verified reassignment left the stale task record"
+  assert_present "$dir/home/state/$other.meta" "verified reassignment removed the secondmate record"
+  assert_present "$dir/pool/1/.fm-slot-owner" "verified reassignment removed the stale marker"
+  [ "$(cat "$dir/pool/1/.fm-slot-owner")" = "$marker_before" ] \
+    || fail "verified reassignment changed the slot owner marker"
+  assert_present "$dir/pool/1/project/.git" "verified reassignment removed the secondmate checkout"
+  assert_present "$dir/worktree/sentinel" "verified reassignment changed the secondmate files"
+  kill -0 "$worker" 2>/dev/null || fail "verified cleanup killed the secondmate process"
+  ! grep -Fq "treehouse <return>" "$dir/runtime.log" \
+    || fail "verified cleanup returned the leased secondmate slot: $(cat "$dir/runtime.log")"
+  kill "$worker" 2>/dev/null || true
+  wait "$worker" 2>/dev/null || true
+  assert_contains "$(cat "$dir/stderr")" "$other" "verified reassignment warning omitted the secondmate"
+
+  pass "fm-teardown: verified durable secondmate ownership permits only stale-record retirement"
+}
+
+test_uncertain_secondmate_lease_evidence_still_refuses() {
+  local dir id=stale-task other=orbit-mate slot rc case_name
+  for case_name in missing ambiguous unreadable contradictory-lease missing-record contradictory-record contradictory-marker canonical-path; do
+    dir=$(make_case "secondmate-lease-$case_name")
+    mark_case_as_treehouse_pool "$dir"
+    slot=$(cd "$dir/pool/1/project" && pwd -P)
+    fm_write_meta "$dir/home/state/$id.meta" \
+      "window=firstmate:fm-$id" "endpoint_task_id=$id" "spawn_gen=1" \
+      "worktree=$dir/worktree" "project=$dir/project" "kind=scout"
+    fm_write_meta "$dir/home/state/$other.meta" \
+      "kind=secondmate" "home=$slot" "worktree=$slot" "project=$dir/project"
+    printf '%s\n' "- $other - fixture (home: $slot; scope: test; projects: project; added 2026-01-01)" \
+      > "$dir/home/data/secondmates.md"
+    claim_pool_slot "$dir" "$id" "$dir/home"
+    case "$case_name" in
+      missing) printf '[]\n' > "$dir/treehouse-status.json" ;;
+      ambiguous) printf '[{"path":"%s","status":"leased","lease_id":"a","lease_holder":"%s"},{"path":"%s","status":"leased","lease_id":"b","lease_holder":"%s"}]\n' "$slot" "$other" "$slot" "$other" > "$dir/treehouse-status.json" ;;
+      unreadable) printf '{broken\n' > "$dir/treehouse-status.json" ;;
+      contradictory-lease) printf '[{"path":"%s","status":"leased","lease_id":"fixture-lease","lease_holder":"unregistered-mate"}]\n' "$slot" > "$dir/treehouse-status.json" ;;
+      missing-record) rm -f "$dir/home/state/$other.meta"; printf '[{"path":"%s","status":"leased","lease_id":"fixture-lease","lease_holder":"%s"}]\n' "$slot" "$other" > "$dir/treehouse-status.json" ;;
+      canonical-path) printf '[{"path":"%s","status":"leased","lease_id":"fixture-lease","lease_holder":"%s"}]\n' "$dir/pool/1/elsewhere" "$other" > "$dir/treehouse-status.json" ;;
+      contradictory-record) fm_write_meta "$dir/home/state/$other.meta" "kind=secondmate" "home=$slot" "worktree=$dir/elsewhere" ; printf '[{"path":"%s","status":"leased","lease_id":"fixture-lease","lease_holder":"%s"}]\n' "$slot" "$other" > "$dir/treehouse-status.json" ;;
+      contradictory-marker) claim_pool_slot "$dir" "$id" "$dir/other-home"; printf '[{"path":"%s","status":"leased","lease_id":"fixture-lease","lease_holder":"%s"}]\n' "$slot" "$other" > "$dir/treehouse-status.json" ;;
+    esac
+    set +e
+    run_case_without_force "$dir" "$id" > "$dir/stdout" 2> "$dir/stderr"
+    rc=$?
+    set -e
+    [ "$rc" -ne 0 ] || fail "$case_name secondmate evidence unexpectedly authorized cleanup"
+    assert_present "$dir/home/state/$id.meta" "$case_name evidence removed the stale task record"
+    if [ "$case_name" = missing-record ]; then
+      assert_absent "$dir/home/state/$other.meta" "missing-record fixture unexpectedly recreated the secondmate record"
+    else
+      assert_present "$dir/home/state/$other.meta" "$case_name evidence altered the secondmate record"
+    fi
+    assert_present "$dir/pool/1/.fm-slot-owner" "$case_name evidence removed the slot marker"
+    assert_present "$dir/pool/1/project/.git" "$case_name evidence removed the slot checkout"
+    assert_present "$dir/worktree/sentinel" "$case_name evidence altered slot files"
+    [ ! -s "$dir/runtime.log" ] || fail "$case_name evidence reached runtime: $(cat "$dir/runtime.log")"
+  done
+  pass "fm-teardown: missing, ambiguous, unreadable, and contradictory lease, record, or marker evidence refuse without mutation"
+}
+
 # The two states that must never become a false refusal: the task's own claim,
 # and no claim at all (a slot taken before claims existed, or already returned).
 test_own_and_absent_slot_claims_still_tear_down() {
@@ -1441,6 +1540,8 @@ test_cross_home_pool_slot_collision_refuses
 test_sole_slot_record_still_tears_down
 test_reassigned_pool_slot_finishes_own_cleanup_without_touching_the_slot
 test_stale_record_on_claimed_slot_retires_then_claimant_tears_down
+test_stale_self_claim_retires_only_after_verified_secondmate_lease
+test_uncertain_secondmate_lease_evidence_still_refuses
 test_own_and_absent_slot_claims_still_tear_down
 test_recorded_endpoint_that_changed_directory_still_tears_down
 test_project_lock_anchors_at_the_local_root_across_home_layouts
