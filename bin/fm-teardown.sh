@@ -1491,6 +1491,12 @@ remove_pr_poll_artifacts() {
     "$state_dir/$id.merge-authority" "$state_dir/$id.check-trust" || return 1
 }
 
+scrub_scout_pr_contributions() {
+  local home=$1 state_dir=$2 data_dir=$3 id=$4
+  FM_HOME="$home" FM_ROOT_OVERRIDE="$FM_ROOT" FM_STATE_OVERRIDE="$state_dir" \
+    FM_DATA_OVERRIDE="$data_dir" "$SCRIPT_DIR/fm-contributions.sh" scrub-scout-pr "$id"
+}
+
 # Resolve the PR number for a worktree branch via gh-axi. Echoes the number on a
 # single match and returns 0; returns non-zero on no match or any lookup failure,
 # so the caller treats it as "no PR found" (fail-safe).
@@ -3280,6 +3286,9 @@ cleanup_firstmate_home_children() {
     child_proj=$(meta_value "$child_meta" project)
     child_kind=$(meta_value "$child_meta" kind)
     [ -n "$child_kind" ] || child_kind=ship
+    if [ "$child_kind" = scout ]; then
+      scrub_scout_pr_contributions "$home" "$sub_state" "$home/data" "$child_id" || return 1
+    fi
     child_backend=$(fm_backend_of_meta "$child_meta")
     if [ "$child_backend" = orca ]; then
       child_t=$(meta_value "$child_meta" terminal)
@@ -3550,6 +3559,9 @@ BACKLOG_TRANSITION=$TEARDOWN_BACKLOG_TRANSITION
 BACKLOG_TRANSITION_FLAGS=()
 [ "$BACKLOG_TRANSITION" = close ] || BACKLOG_TRANSITION_FLAGS=(--retain)
 BACKLOG_SKIP_REASON=
+if [ "$KIND" = scout ]; then
+  scrub_scout_pr_contributions "$FM_HOME" "$STATE" "$DATA" "$ID" || exit 1
+fi
 if [ "$TEARDOWN_BACKLOG_APPLIES" = 1 ]; then
   backlog_done_args || {
     echo "error: the pending backlog $BACKLOG_TRANSITION for $ID is not replayable; refusing destructive teardown" >&2

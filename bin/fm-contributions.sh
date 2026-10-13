@@ -8,6 +8,7 @@
 #   fm-contributions.sh verdict <task> <url> <judged-head> <source-url> <captain|fleet|maintainer|nobody> <summary>
 #   fm-contributions.sh ack <task> <url> <event-token>
 #   fm-contributions.sh retire <task> <url> captain <reason>
+#   fm-contributions.sh scrub-scout-pr <task>
 #   fm-contributions.sh arm [--if-owned]
 #
 # snapshot is read-only and never contacts a forge. Its input is the canonical
@@ -217,6 +218,42 @@ write_record() { # task record-json-file
   chmod 600 "$staged"
   fm_pr_regular_destination_on_device_or_absent "$file" "$device" || fail 'contribution destination changed'
   mv -f -- "$staged" "$file"
+}
+
+scrub_scout_pr_records() {
+  local task=$1 file dir device staged
+  fm_pr_task_id_valid "$task" || fail 'invalid contribution task'
+  acquire
+  get_input
+  jq -e --arg task "$task" \
+    'any(.tasks[]?; .id == $task and .kind == "scout")' \
+    "$TMP/input.json" >/dev/null || fail 'task is not a scout'
+  dir="$DATA/$task"
+  file="$dir/contributions.json"
+  if [ ! -e "$file" ] && [ ! -L "$file" ]; then
+    return 0
+  fi
+  [ -d "$dir" ] && [ ! -L "$dir" ] || fail 'unsafe contribution directory'
+  device=$(fm_pr_file_device "$dir") || fail 'contribution directory unavailable'
+  fm_pr_regular_destination_on_device_or_absent "$file" "$device" \
+    || fail 'unsafe contribution record destination'
+  [ "$(wc -c < "$file")" -le 1048576 ] \
+    || fail 'contribution record is too large'
+  jq_lib -ne --arg task "$task" --slurpfile record "$file" \
+    '($record | length) == 1 and ($record[0] | valid_record) and $record[0].task == $task' >/dev/null \
+    || fail 'invalid stored contribution record'
+  jq -e 'any(.records[]; .kind == "pr")' "$file" >/dev/null || return 0
+  staged=$(umask 077; mktemp "$dir/.contributions.XXXXXX") \
+    || fail 'could not stage contribution cleanup'
+  if ! jq '.records |= map(select(.kind != "pr"))' "$file" > "$staged" \
+    || ! chmod 0600 "$staged" \
+    || ! jq_lib -ne --arg task "$task" --slurpfile record "$staged" \
+      '($record | length) == 1 and ($record[0] | valid_record) and $record[0].task == $task' >/dev/null \
+    || ! fm_pr_regular_destination_on_device_or_absent "$file" "$device" \
+    || ! mv -f -- "$staged" "$file"; then
+    rm -f -- "$staged"
+    fail 'could not publish contribution cleanup'
+  fi
 }
 
 forge() {
@@ -487,9 +524,17 @@ case "${1:-}" in
   poll) poll ;;
   arm) arm "${2:-}" ;;
   pending)
+    get_input
     read_saved
     [ "$ERRORS" -eq 0 ] || fail "$ERRORS unreadable contribution record(s); pending signals are unverified"
-    jq '[.[] | .task as $task | .records[] | .url as $url | .pending[] | . + {task:$task,url:$url}]' "$TMP/saved.json"
+    jq_lib -n --slurpfile input "$TMP/input.json" --slurpfile saved "$TMP/saved.json" '
+      [known($input[0];$saved[0])[] as $owned
+       | $saved[0][] | select(.task == $owned.task) | .records[] | select(.url == $owned.url)
+       | .url as $url | .pending[] | . + {task:$owned.task,url:$url}]'
+    ;;
+  scrub-scout-pr)
+    [ "$#" -eq 2 ] || fail 'scrub-scout-pr needs one task'
+    scrub_scout_pr_records "$2"
     ;;
   verdict|ack)
     action=$1; shift

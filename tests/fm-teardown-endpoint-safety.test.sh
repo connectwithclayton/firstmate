@@ -192,6 +192,32 @@ test_non_pool_teardown_ignores_task_set_lock() {
   pass "fm-teardown: non-pool cleanup ignores unrelated task publication locks"
 }
 
+test_scout_teardown_scrubs_pr_contribution_state() {
+  local dir id=scout-contribution pending
+  dir=$(make_case scout-contribution-cleanup)
+  fm_write_meta "$dir/home/state/$id.meta" \
+    "window=isolated:fm-$id" "endpoint_task_id=$id" \
+    "worktree=$dir/missing-worktree" "project=$dir/project" "kind=scout"
+  mkdir -p "$dir/home/data/$id"
+  jq -n --arg task "$id" '{schema:"fm-contributions.v1",task:$task,records:[{
+    url:"https://github.com/o/r/pull/91",kind:"pr",checked_at:null,error:null,
+    pending:[{token:"comment:1"}],seen:[],verdict:null,observation:null}]}' \
+    > "$dir/home/data/$id/contributions.json"
+
+  run_case "$dir" "$id" > "$dir/stdout" 2> "$dir/stderr" \
+    || fail "scout teardown failed while scrubbing contribution state: $(cat "$dir/stderr")"
+  assert_absent "$dir/home/state/$id.meta" "scout teardown left task metadata"
+  jq -e '.records == []' "$dir/home/data/$id/contributions.json" >/dev/null \
+    || fail "scout teardown retained stale PR contribution ownership"
+  pending=$(FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" \
+    FM_STATE_OVERRIDE="$dir/home/state" FM_DATA_OVERRIDE="$dir/home/data" \
+    "$ROOT/bin/fm-contributions.sh" pending) \
+    || fail 'could not read pending contributions after scout teardown'
+  printf '%s' "$pending" | jq -e '. == []' >/dev/null \
+    || fail "scout teardown left pending PR ownership: $pending"
+  pass "fm-teardown: scout PR contribution state is scrubbed before identity removal"
+}
+
 test_metadata_lock_serializes_destructive_cleanup() {
   local dir id=metadata-locked-task lock ready release holder teardown_pid i=0 rc
   dir=$(make_case metadata-lock)
@@ -1423,6 +1449,7 @@ test_already_gone_endpoint_still_completes_without_a_refusal() {
 test_invalid_endpoint_records_refuse_before_mutation
 test_control_lock_contention_refuses_before_mutation
 test_non_pool_teardown_ignores_task_set_lock
+test_scout_teardown_scrubs_pr_contribution_state
 test_metadata_lock_serializes_destructive_cleanup
 test_supported_backend_endpoint_records_validate
 test_orca_composite_worktree_id_validates

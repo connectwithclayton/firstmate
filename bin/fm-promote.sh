@@ -330,6 +330,8 @@ EOF
   printf '\n'
   fm_dod_block "$MODE" "$ID" "$BRANCH" "$FORGE" "$BASE_BRANCH" "$UPSTREAM_CONSENT"
 }
+FM_HOME="$FM_HOME" FM_ROOT_OVERRIDE="$FM_ROOT" FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" \
+  "$SCRIPT_DIR/fm-contributions.sh" scrub-scout-pr "$ID" || exit 1
 mkdir -p "$DATA/$ID"
 [ ! -d "$INSTRUCTIONS" ] || { echo "error: ship instructions path is a directory: $INSTRUCTIONS" >&2; exit 1; }
 TMP="$DATA/$ID/.ship-instructions.md.${BASHPID:-$$}"
