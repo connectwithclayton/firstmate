@@ -208,6 +208,22 @@ if ! fm_backlog_record_present "$META" "task record" "$STATE"; then
   exit 1
 fi
 grep -qx 'kind=scout' "$META" || { echo "error: task $ID is not a scout task (kind=scout not in meta)" >&2; exit 1; }
+SCOUT_PR_RESIDUE=
+if grep -qE '^(pr|pr_head)=' "$META"; then
+  SCOUT_PR_RESIDUE=$META
+else
+  for residue in "$STATE/$ID.check.sh" "$STATE/$ID.pr-poll" \
+    "$STATE/$ID.pr-poll-registration" "$STATE/$ID.pr-poll-retirement"; do
+    if [ -e "$residue" ] || [ -L "$residue" ]; then
+      SCOUT_PR_RESIDUE=$residue
+      break
+    fi
+  done
+fi
+[ -z "$SCOUT_PR_RESIDUE" ] || {
+  echo "error: task $ID has stale scout PR residue at $SCOUT_PR_RESIDUE; let the watcher retire it before promotion" >&2
+  exit 1
+}
 
 # Unlike the mode and yolo above, the forge is not a per-task decision: it is the
 # captain's project binding, so promotion takes it from the registry rather than

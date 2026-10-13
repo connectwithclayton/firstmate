@@ -2729,6 +2729,63 @@ test_scout_poll_residue_is_retired_before_execution() {
   pass "watcher retires stale scout PR ownership before polling the forge"
 }
 
+test_scout_metadata_cleanup_recovers_without_poll_artifacts() {
+  local dir state legacy state_legacy rc suffix
+  dir=$(make_case scout-metadata-recovery)
+  state="$dir/home/state"
+  fm_write_meta "$state/scout.meta" \
+    'window=session:fm-scout' \
+    "worktree=$dir/wt" \
+    "project=$dir/project" \
+    'kind=scout' \
+    'mode=scout' \
+    'backend=tmux' \
+    'pr=https://github.com/o/r/pull/91' \
+    'pr_head=0123456789abcdef0123456789abcdef01234567'
+  seed_canonical_poll "$dir" scout https://github.com/o/r/pull/91
+  fm_pr_poll_snapshot_capture "$state" scout "$POLL" || fail "could not snapshot scout residue"
+  fm_pr_poll_retirement_publish "$state" scout "$POLL" scout-residue \
+    || fail "could not publish durable scout cleanup"
+  for suffix in check.sh pr-poll pr-poll-registration; do
+    rm -f "$state/scout.$suffix"
+  done
+  add_stop_custom_check "$dir"
+
+  set +e
+  FM_TEST_GH_LOG="$dir/gh.log" FM_TEST_GH_STATE=MERGED \
+    run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/watch.out" 2> "$dir/watch.err"
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || fail "durable scout cleanup recovery failed: $(cat "$dir/watch.err")"
+  assert_poll_absent "$state" scout
+  ! grep -qE '^(pr|pr_head)=' "$state/scout.meta" \
+    || fail "durable recovery left stale scout PR metadata"
+  [ ! -s "$dir/gh.log" ] || fail "durable scout cleanup recovery queried the forge"
+
+  legacy=$(make_case scout-metadata-only-recovery)
+  state_legacy="$legacy/home/state"
+  fm_write_meta "$state_legacy/scout.meta" \
+    'window=session:fm-scout' \
+    "worktree=$legacy/wt" \
+    "project=$legacy/project" \
+    'kind=scout' \
+    'mode=scout' \
+    'backend=tmux' \
+    'pr=https://github.com/o/r/pull/92' \
+    'pr_head=0123456789abcdef0123456789abcdef01234567'
+  add_stop_custom_check "$legacy"
+  set +e
+  FM_TEST_GH_LOG="$legacy/gh.log" FM_TEST_GH_STATE=MERGED \
+    run_watcher_bounded "$legacy/home" "$legacy/fakebin" > "$legacy/watch.out" 2> "$legacy/watch.err"
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || fail "metadata-only scout cleanup recovery failed: $(cat "$legacy/watch.err")"
+  ! grep -qE '^(pr|pr_head)=' "$state_legacy/scout.meta" \
+    || fail "metadata-only recovery left stale scout PR metadata"
+  [ ! -s "$legacy/gh.log" ] || fail "metadata-only scout cleanup queried the forge"
+  pass "scout PR metadata cleanup recovers without poll artifacts"
+}
+
 test_retirement_crash_recovery() {
   local dir state rc raw_count drain_count historical_poll
 
@@ -3697,6 +3754,7 @@ test_merged_poll_reports_upward_from_a_secondmate_home_once
 test_different_merged_pr_for_same_task_is_not_absorbed
 test_persistent_secondmate_retirement_is_poll_only
 test_scout_poll_residue_is_retired_before_execution
+test_scout_metadata_cleanup_recovers_without_poll_artifacts
 test_retirement_crash_recovery
 test_external_merge_transition_retires_only_terminal_poll
 test_retirement_refuses_replacement_and_nonterminal_results

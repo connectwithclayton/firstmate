@@ -1993,7 +1993,8 @@ contribution_tasks_json() {
     fi
     jq -n --arg id "$id" --arg kind "$(meta_value "$meta" kind)" \
       --arg url "$(meta_value "$meta" pr)" --arg head "$(meta_value "$meta" pr_head)" \
-      --arg merge_authority "$merge_authority" '{id:$id,kind:$kind,pr:{url:$url,head:$head},merge_authority:$merge_authority}'
+      --arg merge_authority "$merge_authority" \
+      '{id:$id,kind:$kind,pr:(if $kind == "scout" then {url:"",head:""} else {url:$url,head:$head} end),merge_authority:$merge_authority}'
   done | jq -s .
 }
 

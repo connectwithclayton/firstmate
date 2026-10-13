@@ -367,6 +367,24 @@ EOF
   pass "fenced and indented Captain lines are not authorized intent"
 }
 
+test_promotion_refuses_scout_pr_residue() {
+  local home id meta out status
+  home="$TMP_ROOT/promote-pr-residue-home"
+  id=promote-pr-residue
+  meta="$home/state/$id.meta"
+  mkdir -p "$home/state" "$home/data/$id"
+  printf 'window=fm-%s\nkind=scout\nworktree=/tmp/wt\npr=https://github.com/o/r/pull/91\npr_head=0123456789abcdef0123456789abcdef01234567\n' \
+    "$id" > "$meta"
+
+  out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" "$ROOT/bin/fm-promote.sh" "$id" --mode direct-PR --yolo off 2>&1)
+  status=$?
+  [ "$status" -ne 0 ] || fail "promotion copied stale scout PR ownership into a ship"
+  assert_contains "$out" "stale scout PR residue" "promotion did not identify the invalid scout state"
+  assert_grep 'kind=scout' "$meta" "residue refusal changed the scout role"
+  assert_grep 'pr=https://github.com/o/r/pull/91' "$meta" "residue refusal rewrote metadata before watcher cleanup"
+  pass "promotion refuses stale scout PR ownership"
+}
+
 # The draft check the DoD hands a worker must be the gh-axi path that rule 3 of
 # every ship brief requires for GitHub operations, never raw gh (issue 5325).
 test_pr_based_dod_draft_check_uses_gh_axi() {
@@ -441,6 +459,7 @@ test_local_only_detached_head_is_refused
 test_standalone_local_only_needs_project_ref
 test_non_done_lines_are_not_gated
 test_fenced_and_indented_captain_lines_are_not_intent
+test_promotion_refuses_scout_pr_residue
 test_pr_based_dod_draft_check_uses_gh_axi
 test_promotion_keeps_the_recorded_base_branch
 

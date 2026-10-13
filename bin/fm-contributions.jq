@@ -7,6 +7,9 @@ def supported_url:
 def canonical_url:
   type == "string" and (test("^https://github.com/[A-Za-z0-9-]+/[A-Za-z0-9._-]+/(pull|issues)/[1-9][0-9]*$")
     or test("^https://[A-Za-z0-9.-]+/[A-Za-z0-9._/-]+/-/merge_requests/[1-9][0-9]*$"));
+def pull_request_url:
+  type == "string" and (test("^https://github.com/[A-Za-z0-9-]+/[A-Za-z0-9._-]+/pull/[1-9][0-9]*$")
+    or test("^https://[A-Za-z0-9.-]+/[A-Za-z0-9._/-]+/-/merge_requests/[1-9][0-9]*$"));
 def sha: type == "string" and test("^[a-fA-F0-9]{40}$");
 def valid_record:
   try (.schema == "fm-contributions.v1" and (.task | type == "string")
@@ -32,11 +35,17 @@ def valid_record:
         and (.review_decision | IN("","APPROVED","CHANGES_REQUESTED","REVIEW_REQUIRED"))
         else (.ready | type == "boolean") end))))) catch false;
 def known($input; $saved):
-  ([($input.tasks // [])[] | select(.kind != "secondmate")
+  ([($input.tasks // [])[] | select(.kind != "secondmate" and .kind != "scout")
      | select(.pr.url | canonical_url) | {task:.id,url:.pr.url}]
    + [($input.backlog.records // [])[] | select(.structured == true) as $task
-      | ($task.links // [])[] | select(canonical_url) | {task:$task.id,url:.}]
-   + [$saved[] | .task as $task | .records[] | {task:$task,url}])
+      | ($task.links // [])[] | select(canonical_url) as $url
+      | select($task.kind != "scout" or ($url | pull_request_url | not))
+      | {task:$task.id,url:$url}]
+   + [$saved[] | .task as $task
+      | .records[]
+      | select(.kind != "pr" or (any(($input.tasks // [])[]; .id == $task and .kind == "scout") | not))
+      | select(.kind != "pr" or (any(($input.backlog.records // [])[]; .structured == true and .id == $task and .kind == "scout") | not))
+      | {task:$task,url}])
   | unique_by([.task,.url])
   # A retired record ends that task's ownership even while a backlog link remains.
   | [$saved[] | .task as $task | .records[] | select(.retired != null) | {task:$task,url}] as $retired

@@ -91,6 +91,7 @@ FM_PR_RETIRE_DATA_IDENTITY=
 FM_PR_RETIRE_CHECK_IDENTITY=
 FM_PR_RETIRE_REG_HASH=
 FM_PR_RETIRE_REG_IDENTITY=
+FM_PR_RETIRE_RESULT=
 FM_PR_RETIRE_RECEIPT_HASH=
 FM_PR_RETIRE_RECEIPT_IDENTITY=
 FM_PR_RECORD_STATE=
@@ -876,6 +877,7 @@ fm_pr_poll_retirement_parse() {
   FM_PR_RETIRE_CHECK_IDENTITY=
   FM_PR_RETIRE_REG_HASH=
   FM_PR_RETIRE_REG_IDENTITY=
+  FM_PR_RETIRE_RESULT=
   [ -f "$file" ] && [ ! -L "$file" ] || return 1
   exec 9< "$file" || return 1
   IFS= read -r version <&9 || { exec 9<&-; return 1; }
@@ -910,7 +912,7 @@ fm_pr_poll_retirement_parse() {
   [[ "$check_identity" =~ ^[0-9]+:[0-9]+$ ]] || return 1
   [[ "$reg_hash" =~ ^[0-9a-f]{64}$ ]] || return 1
   [[ "$reg_identity" =~ ^[0-9]+:[0-9]+$ ]] || return 1
-  [ "$result" = merged ] || return 1
+  [ "$result" = merged ] || [ "$result" = scout-residue ] || return 1
   FM_PR_RETIRE_ID=$id
   FM_PR_RETIRE_PROVIDER=$provider
   FM_PR_RETIRE_URL=$url
@@ -923,6 +925,65 @@ fm_pr_poll_retirement_parse() {
   FM_PR_RETIRE_CHECK_IDENTITY=$check_identity
   FM_PR_RETIRE_REG_HASH=$reg_hash
   FM_PR_RETIRE_REG_IDENTITY=$reg_identity
+  FM_PR_RETIRE_RESULT=$result
+}
+
+fm_pr_scout_metadata_identity_cleared() {
+  local meta=$1 state_device=$2 kind
+  fm_pr_private_file_valid "$meta" 600 "$state_device" || return 1
+  kind=$(grep '^kind=' "$meta" | tail -1 | cut -d= -f2- || true)
+  [ "$kind" = scout ] || return 1
+  ! grep -qE '^(pr|pr_head)=' "$meta"
+}
+
+fm_pr_scout_metadata_identity_clear() {
+  local state=$1 id=$2 url=$3 meta lock state_device tmp= line failed=0 kind
+  fm_pr_task_id_valid "$id" || return 1
+  meta="$state/$id.meta"
+  lock=$(fm_meta_lock_path "$meta") || return 1
+  fm_lock_acquire_wait "$lock" || return 1
+  state_device=$(fm_pr_file_device "$state") || failed=1
+  if [ "$failed" -eq 0 ] && fm_pr_scout_metadata_identity_cleared "$meta" "$state_device"; then
+    fm_lock_release "$lock"
+    return $?
+  fi
+  if [ "$failed" -eq 0 ]; then
+    kind=$(grep '^kind=' "$meta" | tail -1 | cut -d= -f2- || true)
+    if [ "$kind" != scout ] || ! fm_pr_metadata_identity_parse "$meta" \
+      || [ "$FM_PR_META_URL" != "$url" ]; then
+      failed=1
+    fi
+  fi
+  if [ "$failed" -eq 0 ]; then
+    tmp=$(mktemp "$state/.fm-pr-scout-meta.XXXXXX") || failed=1
+  fi
+  if [ "$failed" -eq 0 ]; then
+    while IFS= read -r line || [ -n "$line" ]; do
+      case "$line" in
+        pr=*|pr_head=*) ;;
+        *) printf '%s\n' "$line" >> "$tmp" || { failed=1; break; } ;;
+      esac
+    done < "$meta" || failed=1
+  fi
+  if [ "$failed" -eq 0 ]; then
+    chmod 0600 "$tmp" || failed=1
+  fi
+  if [ "$failed" -eq 0 ]; then
+    fm_pr_private_file_valid "$tmp" 600 "$state_device" || failed=1
+  fi
+  if [ "$failed" -eq 0 ]; then
+    fm_pr_regular_destination_on_device_or_absent "$meta" "$state_device" || failed=1
+  fi
+  if [ "$failed" -eq 0 ]; then
+    mv -f -- "$tmp" "$meta" || failed=1
+    tmp=
+  fi
+  if [ "$failed" -eq 0 ]; then
+    fm_pr_scout_metadata_identity_cleared "$meta" "$state_device" || failed=1
+  fi
+  [ -z "$tmp" ] || rm -f -- "$tmp"
+  fm_lock_release "$lock" || failed=1
+  return "$failed"
 }
 
 fm_pr_poll_retirement_receipt_valid() {
@@ -935,12 +996,17 @@ fm_pr_poll_retirement_receipt_valid() {
   fm_pr_poll_retirement_parse "$receipt" || return 1
   [ "$FM_PR_RETIRE_ID" = "$id" ] || return 1
   meta="$state/$id.meta"
-  fm_pr_metadata_identity_parse "$meta" || return 1
-  [ "$FM_PR_META_PROVIDER" = "$FM_PR_RETIRE_PROVIDER" ] || return 1
-  [ "$FM_PR_META_URL" = "$FM_PR_RETIRE_URL" ] || return 1
-  [ "$FM_PR_META_HOST" = "$FM_PR_RETIRE_HOST" ] || return 1
-  [ "$FM_PR_META_PATH" = "$FM_PR_RETIRE_PATH" ] || return 1
-  [ "$FM_PR_META_NUMBER" = "$FM_PR_RETIRE_NUMBER" ] || return 1
+  if [ "$FM_PR_RETIRE_RESULT" = scout-residue ] \
+    && fm_pr_scout_metadata_identity_cleared "$meta" "$state_device"; then
+    :
+  else
+    fm_pr_metadata_identity_parse "$meta" || return 1
+    [ "$FM_PR_META_PROVIDER" = "$FM_PR_RETIRE_PROVIDER" ] || return 1
+    [ "$FM_PR_META_URL" = "$FM_PR_RETIRE_URL" ] || return 1
+    [ "$FM_PR_META_HOST" = "$FM_PR_RETIRE_HOST" ] || return 1
+    [ "$FM_PR_META_PATH" = "$FM_PR_RETIRE_PATH" ] || return 1
+    [ "$FM_PR_META_NUMBER" = "$FM_PR_RETIRE_NUMBER" ] || return 1
+  fi
   FM_PR_RETIRE_RECEIPT_HASH=$(fm_pr_sha256 "$receipt") || return 1
   FM_PR_RETIRE_RECEIPT_IDENTITY=$(fm_pr_file_identity "$receipt") || return 1
 }
@@ -1360,7 +1426,7 @@ fm_pr_poll_retirement_discard_obsolete() {
 
 fm_pr_poll_retirement_publish() {
   local state=$1 id=$2 template=$3 result=$4 receipt state_device tmp
-  [ "$result" = merged ] || return 1
+  [ "$result" = merged ] || [ "$result" = scout-residue ] || return 1
   fm_pr_poll_snapshot_matches "$state" "$id" "$template" || return 1
   state_device=$(fm_pr_file_device "$state") || return 1
   receipt="$state/$id.pr-poll-retirement"
@@ -1382,11 +1448,12 @@ fm_pr_poll_retirement_publish() {
       "$FM_PR_POLL_SNAPSHOT_CHECK_IDENTITY" \
       "$FM_PR_POLL_SNAPSHOT_REG_HASH" \
       "$FM_PR_POLL_SNAPSHOT_REG_IDENTITY" \
-      merged > "$tmp" \
+      "$result" > "$tmp" \
     || ! chmod 0600 "$tmp" \
     || ! fm_pr_private_file_valid "$tmp" 600 "$state_device" \
     || ! fm_pr_poll_retirement_parse "$tmp" \
     || [ "$FM_PR_RETIRE_ID" != "$id" ] \
+    || [ "$FM_PR_RETIRE_RESULT" != "$result" ] \
     || ! fm_pr_poll_snapshot_matches "$state" "$id" "$template" \
     || ! fm_pr_regular_destination_on_device_or_absent "$receipt" "$state_device" \
     || [ -e "$receipt" ] || [ -L "$receipt" ] \
@@ -1399,7 +1466,7 @@ fm_pr_poll_retirement_publish() {
 
 fm_pr_poll_retirement_recover_one() {
   local state=$1 id=$2 template=$3 receipt state_device check data registration
-  local receipt_hash receipt_identity
+  local receipt_hash receipt_identity residue_url
   fm_pr_task_id_valid "$id" || return 1
   receipt="$state/$id.pr-poll-retirement"
   if [ ! -e "$receipt" ] && [ ! -L "$receipt" ]; then
@@ -1408,6 +1475,11 @@ fm_pr_poll_retirement_recover_one() {
   if ! fm_pr_poll_retirement_state_valid "$state" "$id"; then
     fm_pr_poll_retirement_discard_obsolete "$state" "$id" "$template" && return 0
     return 1
+  fi
+  if [ "$FM_PR_RETIRE_RESULT" = scout-residue ]; then
+    residue_url=$FM_PR_RETIRE_URL
+    fm_pr_scout_metadata_identity_clear "$state" "$id" "$residue_url" || return 1
+    fm_pr_poll_retirement_receipt_valid "$state" "$id" || return 1
   fi
   state_device=$(fm_pr_file_device "$state") || return 1
   check="$state/$id.check.sh"

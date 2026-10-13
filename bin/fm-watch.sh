@@ -2616,6 +2616,29 @@ printf '%s\n' "$FM_WATCH_DELIVERY_IDENTITY" > "$WATCH_LOCK/pid-identity" 2>/dev/
 
 [ -e "$STATE/.last-heartbeat" ] || touch "$STATE/.last-heartbeat"
 
+clear_orphaned_scout_pr_identities() {
+  local meta id control url failed=0
+  for meta in "$STATE"/*.meta; do
+    [ -f "$meta" ] && [ ! -L "$meta" ] || continue
+    id=$(basename "$meta" .meta)
+    fm_pr_task_id_valid "$id" || continue
+    control="$STATE/.control-$id.lock"
+    fm_lock_acquire_wait "$control" || { failed=1; continue; }
+    if [ "$(fm_meta_get "$meta" kind)" = scout ] && grep -q '^pr=' "$meta"; then
+      if fm_pr_poll_snapshot_capture "$STATE" "$id" "$SCRIPT_DIR/fm-pr-poll.sh"; then
+        :
+      elif fm_pr_metadata_identity_parse "$meta"; then
+        url=$FM_PR_META_URL
+        fm_pr_scout_metadata_identity_clear "$STATE" "$id" "$url" || failed=1
+      else
+        failed=1
+      fi
+    fi
+    fm_lock_release "$control" || failed=1
+  done
+  return "$failed"
+}
+
 # A merged poll may have queued its terminal wake and then lost the process
 # between receipt publication and fixed-path removal.
 # Finish only identity-bound retirement receipts before any check can run.
@@ -2625,62 +2648,26 @@ if ! fm_pr_poll_retirement_recover_all "$STATE" "$SCRIPT_DIR/fm-pr-poll.sh"; the
   touch "$STATE/.last-check"
   wake "$reason"
 fi
+if ! clear_orphaned_scout_pr_identities; then
+  reason="check: stale scout PR metadata could not be retired"
+  fm_wake_append check pr-poll-retirement "$reason" || exit 1
+  touch "$STATE/.last-check"
+  wake "$reason"
+fi
 
 # Shared by both the first-notification and already-notified paths below so
 # the retirement sequence (bin/fm-pr-lib.sh) is stated once.
-retire_merged_pr_poll() {  # <id>
-  local id=$1
-  if fm_pr_poll_retirement_publish "$STATE" "$id" "$SCRIPT_DIR/fm-pr-poll.sh" merged; then
+retire_pr_poll() {  # <id> <result>
+  local id=$1 result=$2
+  if fm_pr_poll_retirement_publish "$STATE" "$id" "$SCRIPT_DIR/fm-pr-poll.sh" "$result"; then
     if fm_pr_poll_retirement_recover_one "$STATE" "$id" "$SCRIPT_DIR/fm-pr-poll.sh"; then
       return 0
     fi
-    triage_log "merged PR poll retirement remains recoverable for $id"
+    triage_log "PR poll retirement remains recoverable for $id"
   else
-    triage_log "merged PR poll retirement deferred because its canonical snapshot changed for $id"
+    triage_log "PR poll retirement deferred because its canonical snapshot changed for $id"
   fi
   return 1
-}
-
-clear_scout_pr_identity() {  # <id> <url>
-  local id=$1 url=$2 meta lock tmp= state_device line failed=0
-  meta="$STATE/$id.meta"
-  lock=$(fm_meta_lock_path "$meta") || return 1
-  fm_lock_acquire_wait "$lock" || return 1
-  if [ "$(fm_meta_get "$meta" kind)" != scout ] \
-    || ! fm_pr_metadata_identity_parse "$meta" \
-    || [ "$FM_PR_META_URL" != "$url" ]; then
-    fm_lock_release "$lock"
-    return 1
-  fi
-  state_device=$(fm_pr_file_device "$STATE") || failed=1
-  if [ "$failed" -eq 0 ]; then
-    tmp=$(mktemp "$STATE/.fm-pr-scout-meta.XXXXXX") || failed=1
-  fi
-  if [ "$failed" -eq 0 ]; then
-    while IFS= read -r line || [ -n "$line" ]; do
-      case "$line" in
-        pr=*|pr_head=*) ;;
-        *) printf '%s\n' "$line" >> "$tmp" || { failed=1; break; } ;;
-      esac
-    done < "$meta" || failed=1
-  fi
-  if [ "$failed" -eq 0 ]; then
-    chmod 0600 "$tmp" || failed=1
-  fi
-  if [ "$failed" -eq 0 ]; then
-    fm_pr_private_file_valid "$tmp" 600 "$state_device" || failed=1
-  fi
-  if [ "$failed" -eq 0 ]; then
-    fm_pr_regular_destination_on_device_or_absent "$meta" "$state_device" || failed=1
-  fi
-  if [ "$failed" -eq 0 ]; then
-    mv -f -- "$tmp" "$meta" || failed=1
-  fi
-  if [ "$failed" -ne 0 ] && [ -n "$tmp" ]; then
-    rm -f -- "$tmp"
-  fi
-  fm_lock_release "$lock" || failed=1
-  return "$failed"
 }
 
 # A poll armed before a state volume remount can fail capture only because its
@@ -2869,8 +2856,7 @@ while :; do
             continue
           fi
           if [ "$(fm_meta_get "$STATE/$id.meta" kind)" = scout ]; then
-            if ! retire_merged_pr_poll "$id" \
-              || ! clear_scout_pr_identity "$id" "$url"; then
+            if ! retire_pr_poll "$id" scout-residue; then
               pr_poll_control_release || exit 1
               triage_log "scout PR residue for $id could not be retired"
               continue
@@ -2921,7 +2907,7 @@ EOF
             # persistent worker, never landed work, and the merge it detected
             # belongs to a task in the mate's own home. Retire the poll with no
             # outcome and no wake; bin/fm-pr-check.sh refuses to arm another.
-            retire_merged_pr_poll "$id"
+            retire_pr_poll "$id" merged
             pr_poll_control_release || exit 1
             touch "$STATE/.last-check"
             triage_log "retired a merge poll armed on secondmate $id without reporting an outcome"
@@ -2947,7 +2933,7 @@ EOF
             triage_log "published merge outcome for $id but could not retire its authority record"
             exit 1
           fi
-          retire_merged_pr_poll "$id"
+          retire_pr_poll "$id" merged
           pr_poll_control_release || exit 1
           touch "$STATE/.last-check"
           if [ "$FM_MERGE_OUTCOME_ALREADY_RECORDED" = true ]; then
