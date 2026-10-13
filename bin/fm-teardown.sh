@@ -2429,11 +2429,13 @@ verified_secondmate_slot_reassignment() {  # <project> <worktree> <stale-task-id
   lease_state=$(printf '%s\n' "$status_json" | jq -er --arg slot "$slot" '
     [.[] | select((.path | strings) == $slot)]
     | if length == 0 then "none"
-      elif length == 1 and .[0].status == "leased"
+      elif length != 1 then "uncertain"
+      elif .[0].status == "leased"
         and (.[0].lease_holder | strings | length > 0)
         and (.[0].lease_id | strings | length > 0)
         then .[0].lease_holder
-      else "uncertain" end
+      elif .[0].status == "leased" then "uncertain"
+      else "none" end
   ' 2>/dev/null) || return 2
   [ "$lease_state" != none ] || return 1
   [ "$lease_state" != uncertain ] || return 2

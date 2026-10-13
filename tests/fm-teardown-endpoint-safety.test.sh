@@ -1122,7 +1122,7 @@ test_uncertain_secondmate_lease_evidence_still_refuses() {
 # The two states that must never become a false refusal: the task's own claim,
 # and no claim at all (a slot taken before claims existed, or already returned).
 test_own_and_absent_slot_claims_still_tear_down() {
-  local dir id=owned-task
+  local dir id=owned-task slot
 
   dir=$(make_case slot-claim-own)
   mark_case_as_treehouse_pool "$dir"
@@ -1130,6 +1130,9 @@ test_own_and_absent_slot_claims_still_tear_down() {
     "window=firstmate:fm-$id" "endpoint_task_id=$id" \
     "worktree=$dir/worktree" "project=$dir/project" "kind=scout"
   claim_pool_slot "$dir" "$id"
+  slot=$(cd "$dir/pool/1/project" && pwd -P)
+  printf '[{"name":"1","path":"%s","status":"in-use","lease_id":"","lease_holder":""}]\n' \
+    "$slot" > "$dir/treehouse-status.json"
 
   run_case "$dir" "$id" > "$dir/stdout" 2> "$dir/stderr" \
     || fail "teardown of a task holding its own slot claim failed: $(cat "$dir/stderr")"
