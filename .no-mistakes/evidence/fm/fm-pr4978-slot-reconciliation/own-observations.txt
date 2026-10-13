@@ -1,0 +1,4 @@
+rc=0
+meta=absent
+marker=absent
+stderr_refused=0

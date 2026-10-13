@@ -1,0 +1,2 @@
+teardown stale-task complete (window none, worktree /private/var/folders/nz/2_wts0tj2_s7x1flcwlpvvdh0000gn/T/fm-live-happy.cyLTCF/repo/.treehouse/repo-518a1e/1/repo, legacy record accepted without spawn_gen: endpoint missing, incarnation legacy-20261013T035441Z-89331)
+Backlog: stale-task is closed in /private/var/folders/nz/2_wts0tj2_s7x1flcwlpvvdh0000gn/T/fm-lab.vDFVUR/data/backlog.md. Run bin/fm-tasks-axi.sh ready for dependency-cleared candidates, check date gates, and dispatch only work whose blockers are gone and date is due.

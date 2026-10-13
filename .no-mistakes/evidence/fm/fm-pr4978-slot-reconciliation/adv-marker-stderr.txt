@@ -1,0 +1,11 @@
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /private/var/folders/nz/2_wts0tj2_s7x1flcwlpvvdh0000gn/T/fm-lab.xF7Z0e
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  2 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e /Users/claytonjohnson/.no-mistakes/worktrees/dad68ef8e401/01M4SM9ANTVMP8FS6SBD31FS89/.pi/extensions/fm-primary-turnend-guard.ts -e /Users/claytonjohnson/.no-mistakes/worktrees/dad68ef8e401/01M4SM9ANTVMP8FS6SBD31FS89/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: task stale-task's recorded worktree /private/var/folders/nz/2_wts0tj2_s7x1flcwlpvvdh0000gn/T/fm-live-mark.uAYzg6/repo/.treehouse/repo-a1e6d4/1/repo is also task orbit-mate's recorded worktree.
+Returning that pool slot would kill orbit-mate's processes and reset its copy, so nothing was changed - not even with --force.
+Reconcile whichever record is wrong (bin/fm-crew-state.sh stale-task; bin/fm-crew-state.sh orbit-mate), then re-run teardown.

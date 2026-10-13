@@ -1,0 +1,8 @@
+rc=0
+stale_meta=absent
+secondmate_meta=present
+preserved_file=present
+unpublished_branch=unpublished-work
+worker_alive=yes
+slot_git=present
+marker_unchanged=yes

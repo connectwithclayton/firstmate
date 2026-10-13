@@ -1,0 +1,6 @@
+rc=1
+stale_meta=present
+secondmate_meta=present
+file=present
+worker_alive=yes
+marker=present

@@ -1,0 +1,18 @@
+Live validation drove real bin/fm-teardown.sh against disposable lab homes and in-project Treehouse pools (root="."), never the operator default pool, and never --force on the records-only path.
+
+1) Stale ordinary-task record + stale .fm-slot-owner naming a slot durably leased to orbit-mate:
+   - teardown stale-task rc=0 without --force
+   - stale-task.meta retired; orbit-mate.meta kept
+   - slot stayed leased to orbit-mate with the same lease_id
+   - unpublished-work branch, preserved.txt, .git, slot-owner marker, and sleep process all survived
+   - stderr warned that only stale-task's own records would be retired
+
+2) Review fix: non-leased Treehouse status in-use (empty lease_id/lease_holder) with the task's own claim:
+   - teardown owned-task rc=0
+   - record and marker removed; treehouse return moved the slot to available
+   - no "Treehouse reports a lease" refusal
+
+3) Adversarial refuses (nothing mutated: records, files, markers, leases, processes kept):
+   - lease_holder unregistered-mate with an orbit-mate record still naming the slot
+   - real orbit-mate lease with no secondmate meta ("cannot be proved")
+   - marker home pointing at a different directory

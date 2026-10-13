@@ -1,0 +1,9 @@
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /private/var/folders/nz/2_wts0tj2_s7x1flcwlpvvdh0000gn/T/fm-lab.gjGKMZ
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e /Users/claytonjohnson/.no-mistakes/worktrees/dad68ef8e401/01M4SM9ANTVMP8FS6SBD31FS89/.pi/extensions/fm-primary-turnend-guard.ts -e /Users/claytonjohnson/.no-mistakes/worktrees/dad68ef8e401/01M4SM9ANTVMP8FS6SBD31FS89/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: Treehouse reports or may hold a lease on /private/var/folders/nz/2_wts0tj2_s7x1flcwlpvvdh0000gn/T/fm-live-miss.O6IE8g/repo/.treehouse/repo-2d46be/1/repo, but its persistent secondmate ownership cannot be proved; nothing was changed.

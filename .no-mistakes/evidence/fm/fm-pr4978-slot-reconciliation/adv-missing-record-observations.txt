@@ -1,0 +1,5 @@
+rc=1
+stale_meta=present
+file=present
+marker=present
+lease_after=leased/orbit-mate
