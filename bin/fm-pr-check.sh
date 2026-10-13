@@ -69,6 +69,10 @@ if [ "$KIND" = secondmate ]; then
   echo "error: $ID is a secondmate, not a delivery lane - $URL was reported on its status channel but belongs to a task in the mate's own home, which arms its own merge watch" >&2
   exit 1
 fi
+if [ "$KIND" = scout ]; then
+  echo "error: $ID is a scout, not a delivery lane - a pull request mentioned on its status channel belongs to another task and cannot be registered here" >&2
+  exit 1
+fi
 
 # A prior exact merged result may have queued its durable wake immediately
 # before interruption.

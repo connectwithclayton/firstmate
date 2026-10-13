@@ -722,6 +722,37 @@ test_secondmate_record_refuses_a_pr_watch() {
   pass "fm-pr-check refuses to record a PR or arm a merge watch on a secondmate record"
 }
 
+# A scout's wait line may mention another task's pull request, but it cannot
+# transfer ownership to the scout, arm a poll, or publish a ready outcome.
+test_scout_status_pr_mention_does_not_register() {
+  local dir url rc
+  url=https://github.com/o/r/pull/91
+  dir=$(make_case scout-mentioned-pr)
+  fm_write_meta "$dir/home/state/scout.meta" \
+    "window=firstmate:fm-scout" \
+    'endpoint_task_id=scout' \
+    "worktree=$dir/wt" \
+    "project=$dir/project" \
+    'kind=scout' \
+    'mode=no-mistakes'
+  printf 'paused: awaiting review of %s\n' "$url" > "$dir/home/state/scout.status"
+  seed_secondmate_home "$dir" local
+  cp "$dir/home/state/scout.meta" "$dir/meta.before"
+
+  set +e
+  run_check_entry "$dir" scout "$url" > "$dir/stdout" 2> "$dir/stderr"; rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "a scout's status-line PR mention was registered as its delivery"
+  grep -qi 'scout' "$dir/stderr" || fail "the refusal did not name the scout role"
+  cmp -s "$dir/meta.before" "$dir/home/state/scout.meta" || fail "the refusal changed scout metadata"
+  [ ! -e "$dir/home/state/scout.check.sh" ] || fail "the refusal armed a merge poll for the scout"
+  [ ! -e "$dir/home/state/scout.pr-poll" ] || fail "the refusal wrote a poll sidecar for the scout"
+  [ ! -e "$dir/home/state/parent-replies.status" ] || fail "the refusal published a child PR-ready outcome"
+  [ ! -s "$dir/gh.log" ] || fail "the refusal queried the forge for the mentioned PR"
+  [ ! -s "$dir/guard.log" ] || fail "the refusal reached the delivery guard"
+  pass "a PR mentioned in a scout wait line cannot register, monitor, or publish as the scout's delivery"
+}
+
 # With no forge-reported head (gh cannot supply one), the named head is the
 # worker copy's HEAD, and a HEAD that exists only there is refused.
 test_unpushed_named_head_refuses_registration() {
@@ -3631,6 +3662,7 @@ test_gitlab_merged_poll_retires
 test_invalid_entrypoints_have_zero_side_effects
 test_draft_pull_request_is_not_armed
 test_secondmate_record_refuses_a_pr_watch
+test_scout_status_pr_mention_does_not_register
 test_unpushed_named_head_refuses_registration
 test_direct_pr_unpushed_commit_refuses_registration
 test_valid_recording_and_merge_derivation
