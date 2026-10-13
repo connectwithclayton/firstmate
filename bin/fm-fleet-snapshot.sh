@@ -745,7 +745,7 @@ prefetch_task_current_states() {
 task_json_lines() {
   local meta original_meta id kind harness mode yolo project worktree home projects spawn_gen backend target status_log report_path
   local remote_host remote_root current_file endpoint_file observation_line index=0
-  local pr pr_source event_json current_json endpoint_exists agent_alive meta_json status_json report_json worktree_json home_json
+  local pr pr_head pr_source event_json current_json endpoint_exists agent_alive meta_json status_json report_json worktree_json home_json
   local last_event_raw current_state current_source pending_decision blocked_event report_present=0 pr_from_status
   local open_decisions_tsv open_decisions_json
 
@@ -778,14 +778,20 @@ task_json_lines() {
     status_log="$SNAPSHOT_TASK_DIR/$id.status"
     report_path="$SNAPSHOT_TASK_DIR/$id.report"
     pr=$(meta_value "$meta" pr)
-    pr_source=meta
-    if [ -z "$pr" ]; then
+    pr_head=$(meta_value "$meta" pr_head)
+    if [ "$kind" = scout ]; then
+      pr=
+      pr_head=
+      pr_source=absent
+    elif [ -n "$pr" ]; then
+      pr_source=meta
+    else
       pr_from_status=$(first_pr_url_in_file "$status_log" || true)
       pr=$pr_from_status
       pr_source=status_event
-    fi
-    if [ -z "$pr" ]; then
-      pr_source=absent
+      if [ -z "$pr" ]; then
+        pr_source=absent
+      fi
     fi
 
     current_file="$SNAPSHOT_TASK_DIR/$id.json"
@@ -873,7 +879,7 @@ task_json_lines() {
       --arg remote_root "$remote_root" \
       --arg pr "$pr" \
       --arg pr_source "$pr_source" \
-      --arg pr_head "$(meta_value "$meta" pr_head)" \
+      --arg pr_head "$pr_head" \
       --arg agent_alive "$agent_alive" \
       --arg observed_at "$SNAPSHOT_NOW" \
       --arg last_event_raw "$last_event_raw" \

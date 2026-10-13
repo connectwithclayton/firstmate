@@ -255,6 +255,65 @@ test_fixture_snapshot_json() {
   pass "fixture snapshot covers task rows, backlog rows, pointers, stable ordering, and emission-time event age"
 }
 
+test_scout_pr_mention_is_not_an_artifact() {
+  local home fakebin url out view scout_row ship_row
+  home=$(make_home scout-pr-mention)
+  fakebin=$(make_fakebin "$home")
+  url=https://github.com/o/r/pull/91
+  mkdir -p "$home/data/scout-mentioned" "$home/projects/scout" "$home/projects/stale" "$home/projects/ship"
+  printf '# Scout report\n' > "$home/data/scout-mentioned/report.md"
+  fm_write_meta "$home/state/scout-mentioned.meta" \
+    'window=firstmate:fm-scout-mentioned' \
+    "worktree=$home/projects/scout" \
+    'project=alpha' \
+    'harness=codex' \
+    'kind=scout' \
+    'mode=scout'
+  printf 'paused: awaiting review of %s\n' "$url" > "$home/state/scout-mentioned.status"
+  fm_write_meta "$home/state/scout-stale.meta" \
+    'window=firstmate:fm-scout-stale' \
+    "worktree=$home/projects/stale" \
+    'project=alpha' \
+    'harness=codex' \
+    'kind=scout' \
+    'mode=scout' \
+    "pr=$url" \
+    'pr_head=0123456789abcdef'
+  printf 'done: report ready\n' > "$home/state/scout-stale.status"
+  fm_write_meta "$home/state/ship-ready.meta" \
+    'window=firstmate:fm-ship-ready' \
+    "worktree=$home/projects/ship" \
+    'project=alpha' \
+    'harness=codex' \
+    'kind=ship' \
+    'mode=no-mistakes'
+  printf 'done: PR %s\n' "$url" > "$home/state/ship-ready.status"
+
+  out=$(PATH="$fakebin:$PATH" FM_HOME="$home" "$SNAPSHOT" --json)
+  printf '%s' "$out" | jq -e --arg url "$url" '
+    (.tasks[] | select(.id == "scout-mentioned")
+      | .pr == {url:null,source:"absent",head:null}
+        and .paths.status_log.last_event.raw == ("paused: awaiting review of " + $url))
+      and
+    (.tasks[] | select(.id == "scout-stale")
+      | .pr == {url:null,source:"absent",head:null})
+      and
+    (.tasks[] | select(.id == "ship-ready")
+      | .pr.url == $url and .pr.source == "status_event")
+  ' >/dev/null || fail "snapshot attributed a mentioned PR to a scout or lost ship status discovery: $out"
+
+  view=$(PATH="$fakebin:$PATH" FM_HOME="$home" "$VIEW")
+  scout_row=$(printf '%s\n' "$view" | grep '^| scout-mentioned |')
+  ship_row=$(printf '%s\n' "$view" | grep '^| ship-ready |')
+  assert_contains "$scout_row" "$home/data/scout-mentioned/report.md" \
+    "fleet view must render the scout report as its artifact"
+  assert_not_contains "$scout_row" "$url" \
+    "fleet view must not render a PR merely mentioned by a scout"
+  assert_contains "$ship_row" "$url" \
+    "fleet view must preserve a delivery lane's status-derived PR artifact"
+  pass "scout PR mentions stay historical prose, not canonical artifacts"
+}
+
 # R1 owner contract: main_inventory discloses orphan in-flight and unstructured
 # current rows without inventing task rows.
 test_hold_buckets_are_total_and_text_blind() {
@@ -1154,6 +1213,7 @@ EOF
 
 test_empty_fleet_json
 test_fixture_snapshot_json
+test_scout_pr_mention_is_not_an_artifact
 test_home_summary_excludes_secondmate_from_child_inventory
 test_undated_captain_hold_phrasing_and_aging
 test_hold_buckets_are_total_and_text_blind
