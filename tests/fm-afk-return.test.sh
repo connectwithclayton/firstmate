@@ -624,11 +624,14 @@ test_return_brief_lists_landed_work_awaiting_cleanup() {
   # never list it: a secondmate is never landed work.
   printf 'window=synthetic:fm-axi-mate\nbackend=tmux\nkind=secondmate\npr=https://github.com/example/child/pull/7\n' > "$dir/home/state/axi-mate.meta"
   printf 'done [at=1] [key=merged-childx]: merged childx https://github.com/example/child/pull/7\n' > "$dir/home/state/axi-mate.status"
+  printf 'window=synthetic:fm-stale-scout\nbackend=tmux\nkind=scout\npr=https://github.com/example/scout/pull/9\n' > "$dir/home/state/stale-scout.meta"
+  printf 'done: report ready\n' > "$dir/home/state/stale-scout.status"
   (
     # shellcheck source=bin/fm-pr-lib.sh
     . "$ROOT/bin/fm-pr-lib.sh"
     fm_pr_poll_merge_mark_notified "$dir/home/state" landed github github.com example/landed 7
     fm_pr_poll_merge_mark_notified "$dir/home/state" axi-mate github github.com example/child 7
+    fm_pr_poll_merge_mark_notified "$dir/home/state" stale-scout github github.com example/scout 9
   ) || fail "could not record the landed PR's merge notification through its owner"
   touch "$dir/home/state/.last-watcher-beat"
   : > "$dir/home/state/.fake-drain"
@@ -645,6 +648,9 @@ test_return_brief_lists_landed_work_awaiting_cleanup() {
   assert_not_contains "$out" '  - axi-mate:' "a persistent secondmate was listed as landed work"
   assert_not_contains "$out" 'bin/fm-teardown.sh axi-mate' "the brief offered a persistent secondmate for teardown"
   assert_not_contains "$out" 'example/child/pull/7' "a secondmate's recorded PR surfaced in the brief"
+  assert_not_contains "$out" '  - stale-scout:' "a scout with stale PR state was listed as landed work"
+  assert_not_contains "$out" 'bin/fm-teardown.sh stale-scout' "the brief offered a scout for PR-based teardown"
+  assert_not_contains "$out" 'example/scout/pull/9' "a scout's stale PR surfaced in the brief"
   assert_contains "$out" 'catch-up clear' "landed work must not hold the gate"
   pass "the return brief lists landed work whose worker is still up, from the durable merge marker only, without gating on it and never offering a secondmate for teardown"
 }

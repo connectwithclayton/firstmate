@@ -2631,11 +2631,56 @@ fi
 retire_merged_pr_poll() {  # <id>
   local id=$1
   if fm_pr_poll_retirement_publish "$STATE" "$id" "$SCRIPT_DIR/fm-pr-poll.sh" merged; then
-    fm_pr_poll_retirement_recover_one "$STATE" "$id" "$SCRIPT_DIR/fm-pr-poll.sh" \
-      || triage_log "merged PR poll retirement remains recoverable for $id"
+    if fm_pr_poll_retirement_recover_one "$STATE" "$id" "$SCRIPT_DIR/fm-pr-poll.sh"; then
+      return 0
+    fi
+    triage_log "merged PR poll retirement remains recoverable for $id"
   else
     triage_log "merged PR poll retirement deferred because its canonical snapshot changed for $id"
   fi
+  return 1
+}
+
+clear_scout_pr_identity() {  # <id> <url>
+  local id=$1 url=$2 meta lock tmp= state_device line failed=0
+  meta="$STATE/$id.meta"
+  lock=$(fm_meta_lock_path "$meta") || return 1
+  fm_lock_acquire_wait "$lock" || return 1
+  if [ "$(fm_meta_get "$meta" kind)" != scout ] \
+    || ! fm_pr_metadata_identity_parse "$meta" \
+    || [ "$FM_PR_META_URL" != "$url" ]; then
+    fm_lock_release "$lock"
+    return 1
+  fi
+  state_device=$(fm_pr_file_device "$STATE") || failed=1
+  if [ "$failed" -eq 0 ]; then
+    tmp=$(mktemp "$STATE/.fm-pr-scout-meta.XXXXXX") || failed=1
+  fi
+  if [ "$failed" -eq 0 ]; then
+    while IFS= read -r line || [ -n "$line" ]; do
+      case "$line" in
+        pr=*|pr_head=*) ;;
+        *) printf '%s\n' "$line" >> "$tmp" || { failed=1; break; } ;;
+      esac
+    done < "$meta" || failed=1
+  fi
+  if [ "$failed" -eq 0 ]; then
+    chmod 0600 "$tmp" || failed=1
+  fi
+  if [ "$failed" -eq 0 ]; then
+    fm_pr_private_file_valid "$tmp" 600 "$state_device" || failed=1
+  fi
+  if [ "$failed" -eq 0 ]; then
+    fm_pr_regular_destination_on_device_or_absent "$meta" "$state_device" || failed=1
+  fi
+  if [ "$failed" -eq 0 ]; then
+    mv -f -- "$tmp" "$meta" || failed=1
+  fi
+  if [ "$failed" -ne 0 ] && [ -n "$tmp" ]; then
+    rm -f -- "$tmp"
+  fi
+  fm_lock_release "$lock" || failed=1
+  return "$failed"
 }
 
 # A poll armed before a state volume remount can fail capture only because its
@@ -2821,6 +2866,18 @@ while :; do
           if ! fm_pr_poll_snapshot_matches "$STATE" "$id" "$SCRIPT_DIR/fm-pr-poll.sh"; then
             pr_poll_control_release || exit 1
             triage_log "PR poll for $id changed before its validated check; skipping the stale snapshot"
+            continue
+          fi
+          if [ "$(fm_meta_get "$STATE/$id.meta" kind)" = scout ]; then
+            if ! retire_merged_pr_poll "$id" \
+              || ! clear_scout_pr_identity "$id" "$url"; then
+              pr_poll_control_release || exit 1
+              triage_log "scout PR residue for $id could not be retired"
+              continue
+            fi
+            pr_poll_control_release || exit 1
+            touch "$STATE/.last-check"
+            triage_log "retired PR ownership residue from scout $id"
             continue
           fi
           run_check_capture "$SCRIPT_DIR/fm-pr-poll.sh" --validated \

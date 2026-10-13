@@ -2687,6 +2687,48 @@ test_persistent_secondmate_retirement_is_poll_only() {
   pass "a merged poll on a persistent secondmate retires silently: no outcome, marker, or wake, and every lifecycle artifact preserved"
 }
 
+test_scout_poll_residue_is_retired_before_execution() {
+  local dir state rc
+  dir=$(make_case scout-poll-residue)
+  state="$dir/home/state"
+  fm_write_meta "$state/scout.meta" \
+    'window=session:fm-scout' \
+    "worktree=$dir/wt" \
+    "project=$dir/project" \
+    'kind=scout' \
+    'mode=scout' \
+    'backend=tmux' \
+    'pr=https://github.com/o/r/pull/91' \
+    'pr_head=0123456789abcdef0123456789abcdef01234567'
+  printf 'paused: awaiting review of https://github.com/o/r/pull/91\n' > "$state/scout.status"
+  seed_canonical_poll "$dir" scout https://github.com/o/r/pull/91
+  add_stop_custom_check "$dir"
+  : > "$dir/gh.log"
+
+  set +e
+  FM_TEST_GH_LOG="$dir/gh.log" FM_TEST_GH_STATE=MERGED \
+    run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/watch.out" 2> "$dir/watch.err"
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || fail "scout residue watcher cycle failed: $(cat "$dir/watch.err")"
+  assert_poll_absent "$state" scout
+  [ ! -s "$dir/gh.log" ] || fail "the watcher queried the forge before retiring a scout's PR poll"
+  ! grep -q '^pr=' "$state/scout.meta" || fail "the watcher retained a scout's stale PR identity"
+  ! grep -q '^pr_head=' "$state/scout.meta" || fail "the watcher retained a scout's stale PR head"
+  grep -qx 'kind=scout' "$state/scout.meta" || fail "the watcher changed the scout role while clearing PR residue"
+  [ ! -e "$state/scout.pr-poll-merge-notified" ] \
+    || fail "the watcher recorded a merge notification for scout residue"
+  ! grep -F 'merged-scout-' "$state/.wake-queue" >/dev/null 2>&1 \
+    || fail "the watcher queued a landed-work wake for scout residue"
+  ! grep -F 'scout.check.sh' "$state/.wake-queue" >/dev/null 2>&1 \
+    || fail "the watcher queued a check wake for scout residue"
+  case "$(cat "$dir/watch.out")" in
+    check:*z-stop.check.sh:*stop-cycle) ;;
+    *) fail "scout residue surfaced an outcome instead of retiring silently: $(cat "$dir/watch.out")" ;;
+  esac
+  pass "watcher retires stale scout PR ownership before polling the forge"
+}
+
 test_retirement_crash_recovery() {
   local dir state rc raw_count drain_count historical_poll
 
@@ -3654,6 +3696,7 @@ test_authority_retirement_preserves_replacement
 test_merged_poll_reports_upward_from_a_secondmate_home_once
 test_different_merged_pr_for_same_task_is_not_absorbed
 test_persistent_secondmate_retirement_is_poll_only
+test_scout_poll_residue_is_retired_before_execution
 test_retirement_crash_recovery
 test_external_merge_transition_retires_only_terminal_poll
 test_retirement_refuses_replacement_and_nonterminal_results
