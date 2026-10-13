@@ -743,7 +743,7 @@ status_line_note() {  # <status-line> -> text after the first colon, trimmed
 }
 
 status_ready_pr_urls() {
-  LC_ALL=C sed -nE 's|^done( \[at=[^]]*\])?: PR (https?://[^[:space:])"]+/pull/[0-9]+)( checks green)?$|\2|p'
+  LC_ALL=C sed -nE 's#^done( \[at=[^]]*\])?: PR (https?://[^[:space:])"]+/(pulls?/[1-9][0-9]*|-/merge_requests/[1-9][0-9]*|c/[^[:space:])"]+/[+]/[1-9][0-9]*))( checks green| published for review)?$#\2#p'
 }
 
 _fm_decision_key() {  # <status-line> [<keyless>] -> key slug, or <keyless> (default "default") when no token

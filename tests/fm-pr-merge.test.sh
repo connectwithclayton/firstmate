@@ -12,6 +12,8 @@ set -u
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 fm_git_identity fmtest fmtest@example.invalid
+# shellcheck source=/dev/null
+. "$ROOT/bin/fm-pr-lib.sh"
 
 PR_MERGE="$ROOT/bin/fm-pr-merge.sh"
 TMP_ROOT=$(fm_test_tmproot fm-pr-merge-tests)
@@ -658,7 +660,18 @@ glab_merge_line() {
 }
 
 run_pr_merge() {
-  local case_dir=$1 rc; shift
+  local case_dir=$1 rc id=${2:-} url=${3:-} mode line
+  if fm_pr_task_id_valid "$id" && fm_pr_url_parse "$url" \
+    && [ -f "$case_dir/state/$id.meta" ]; then
+    mode=$(sed -n 's/^mode=//p' "$case_dir/state/$id.meta" | tail -1)
+    case "$FM_PR_PROVIDER:$mode" in
+      gerrit:*) line="done: PR $url published for review" ;;
+      *:no-mistakes|*:) line="done: PR $url checks green" ;;
+      *) line="done: PR $url" ;;
+    esac
+    printf '%s\n' "$line" >> "$case_dir/state/$id.status"
+  fi
+  shift
   FM_ROOT_OVERRIDE="$ROOT" \
   FM_HOME="${FM_TEST_HOME:-$case_dir/home}" \
   FM_STATE_OVERRIDE="$case_dir/state" \

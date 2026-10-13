@@ -81,6 +81,7 @@ test_fm_home_parameterization() {
   printf '#!/usr/bin/env bash\nexit 1\n' > "$home_one/fakebin/gh"
   chmod +x "$home_one/fakebin/gh"
   printf 'project=x\nworktree=%s\n' "$home_one/wt" > "$home_one/state/task-a.meta"
+  printf 'done: PR https://github.com/example/repo/pull/1 checks green\n' > "$home_one/state/task-a.status"
   PATH="$home_one/fakebin:$PATH" FM_HOME="$home_one" FM_GUARD_GRACE=999999 \
     "$ROOT/bin/fm-pr-check.sh" task-a https://github.com/example/repo/pull/1 >/dev/null 2>/dev/null \
     || fail "fm-pr-check failed under FM_HOME"

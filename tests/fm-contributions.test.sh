@@ -312,6 +312,7 @@ forge_home() {
   chmod +x "$home/root/bin/fm-guard.sh"
   printf 'worktree=%s/wt\nkind=ship\n' "$home" > "$home/state/delivery.meta"
   chmod 600 "$home/state/delivery.meta"
+  printf 'done: PR https://github.com/o/r/pull/8 checks green\n' > "$home/state/delivery.status"
   record "$home" delivery 8 open mergeable
   printf '%s\n' "$HEAD_A" > "$home/forge/head"
   printf '[]\n' > "$home/forge/comments.json"

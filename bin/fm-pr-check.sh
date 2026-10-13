@@ -74,6 +74,20 @@ if [ "$KIND" = scout ]; then
   exit 1
 fi
 
+REGISTERED_URL=
+if fm_pr_metadata_identity_parse "$META"; then
+  REGISTERED_URL=$FM_PR_META_URL
+fi
+STATUS="$STATE/$ID.status"
+if [ "$REGISTERED_URL" != "$URL" ]; then
+  if [ ! -f "$STATUS" ] || [ ! -r "$STATUS" ] || [ -L "$STATUS" ] \
+    || [ "$(fm_pr_file_link_count "$STATUS")" != 1 ] \
+    || ! status_ready_pr_urls < "$STATUS" | grep -Fqx "$URL"; then
+    echo "error: task $ID has no exact PR-ready status for $URL, so it cannot be registered as this task's delivery" >&2
+    exit 1
+  fi
+fi
+
 # A prior exact merged result may have queued its durable wake immediately
 # before interruption.
 # Finish only its identity-bound receipt before publishing a replacement poll.

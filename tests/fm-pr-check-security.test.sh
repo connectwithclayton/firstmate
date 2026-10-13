@@ -301,7 +301,20 @@ write_poll_meta() {
 }
 
 
-run_check_entry() {
+write_ready_status() {
+  local dir=$1 id=$2 url=$3 mode provider line
+  mode=$(sed -n 's/^mode=//p' "$dir/home/state/$id.meta" | tail -1)
+  fm_pr_url_parse "$url" || return 1
+  provider=$FM_PR_PROVIDER
+  case "$provider:$mode" in
+    gerrit:*) line="done: PR $url published for review" ;;
+    *:no-mistakes|*:) line="done: PR $url checks green" ;;
+    *) line="done: PR $url" ;;
+  esac
+  printf '%s\n' "$line" >> "$dir/home/state/$id.status"
+}
+
+run_check_entry_unprepared() {
   local dir=$1
   shift
   FM_ROOT_OVERRIDE="$dir/root" FM_HOME="$dir/home" \
@@ -312,8 +325,23 @@ run_check_entry() {
     "$PR_CHECK" "$@"
 }
 
+run_check_entry() {
+  local dir=$1 id=${2:-} url=${3:-}
+  if [ "$#" -eq 3 ] && fm_pr_task_id_valid "$id" && fm_pr_url_parse "$url" \
+    && [ -f "$dir/home/state/$id.meta" ] \
+    && [ "$(sed -n 's/^kind=//p' "$dir/home/state/$id.meta" | tail -1)" != secondmate ] \
+    && [ "$(sed -n 's/^kind=//p' "$dir/home/state/$id.meta" | tail -1)" != scout ]; then
+    write_ready_status "$dir" "$id" "$url" || return 1
+  fi
+  run_check_entry_unprepared "$@"
+}
+
 run_merge_entry() {
-  local dir=$1
+  local dir=$1 id=${2:-} url=${3:-}
+  if [ "$#" -ge 3 ] && fm_pr_task_id_valid "$id" && fm_pr_url_parse "$url" \
+    && [ -f "$dir/home/state/$id.meta" ]; then
+    write_ready_status "$dir" "$id" "$url" || return 1
+  fi
   shift
   FM_ROOT_OVERRIDE="$dir/root" FM_HOME="$dir/home" \
     FM_TEST_GUARD_LOG="$dir/guard.log" FM_TEST_GH_LOG="$dir/gh.log" \
@@ -740,7 +768,7 @@ test_scout_status_pr_mention_does_not_register() {
   cp "$dir/home/state/scout.meta" "$dir/meta.before"
 
   set +e
-  run_check_entry "$dir" scout "$url" > "$dir/stdout" 2> "$dir/stderr"; rc=$?
+  run_check_entry_unprepared "$dir" scout "$url" > "$dir/stdout" 2> "$dir/stderr"; rc=$?
   set -e
   [ "$rc" -ne 0 ] || fail "a scout's status-line PR mention was registered as its delivery"
   grep -qi 'scout' "$dir/stderr" || fail "the refusal did not name the scout role"
@@ -750,7 +778,41 @@ test_scout_status_pr_mention_does_not_register() {
   [ ! -e "$dir/home/state/parent-replies.status" ] || fail "the refusal published a child PR-ready outcome"
   [ ! -s "$dir/gh.log" ] || fail "the refusal queried the forge for the mentioned PR"
   [ ! -s "$dir/guard.log" ] || fail "the refusal reached the delivery guard"
-  pass "a PR mentioned in a scout wait line cannot register, monitor, or publish as the scout's delivery"
+
+  fm_write_meta "$dir/home/state/scout.meta" \
+    "window=firstmate:fm-scout" \
+    'endpoint_task_id=scout' \
+    "worktree=$dir/wt" \
+    "project=$dir/project" \
+    'kind=ship' \
+    'mode=no-mistakes'
+  cp "$dir/home/state/scout.meta" "$dir/meta.before"
+  set +e
+  run_check_entry_unprepared "$dir" scout "$url" > "$dir/stdout" 2> "$dir/stderr"; rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "promotion let a scout's historical PR mention register as its delivery"
+  grep -qi 'PR-ready status' "$dir/stderr" || fail "the promoted-task refusal did not name the missing delivery evidence"
+  cmp -s "$dir/meta.before" "$dir/home/state/scout.meta" || fail "the promoted-task refusal changed metadata"
+  [ ! -e "$dir/home/state/scout.check.sh" ] || fail "the promoted-task refusal armed a merge poll"
+  [ ! -e "$dir/home/state/scout.pr-poll" ] || fail "the promoted-task refusal wrote a poll sidecar"
+  [ ! -e "$dir/home/state/parent-replies.status" ] || fail "the promoted-task refusal published a ready outcome"
+  [ ! -s "$dir/gh.log" ] || fail "the promoted-task refusal queried the forge"
+  [ ! -s "$dir/guard.log" ] || fail "the promoted-task refusal reached the delivery guard"
+
+  printf 'done: PR %s checks green\n' "$url" > "$dir/home/state/scout.status"
+  run_check_entry_unprepared "$dir" scout "$url" > "$dir/stdout" 2> "$dir/stderr" \
+    || fail "an exact ready status did not authorize first registration"
+  grep -qxF "pr=$url" "$dir/home/state/scout.meta" || fail "authorized registration did not record ownership"
+  fm_pr_poll_artifacts_valid "$dir/home/state" scout "$POLL" \
+    || fail "authorized registration did not publish an authenticated poll"
+
+  printf 'paused: awaiting review of %s\n' "$url" > "$dir/home/state/scout.status"
+  run_check_entry_unprepared "$dir" scout "$url" > "$dir/stdout" 2> "$dir/stderr" \
+    || fail "an already authenticated matching registration could not re-arm"
+  grep -qxF "pr=$url" "$dir/home/state/scout.meta" || fail "re-arm changed canonical ownership"
+  fm_pr_poll_artifacts_valid "$dir/home/state" scout "$POLL" \
+    || fail "re-arm did not retain an authenticated poll"
+  pass "scout PR mentions stay non-owning across promotion while exact delivery and re-arm succeed"
 }
 
 # With no forge-reported head (gh cannot supply one), the named head is the
@@ -1721,6 +1783,7 @@ EOF
 
     # Arming is where a missing CLI can still be reported, so it refuses there.
     write_task_meta "$dir" "task-no-$tool"
+    write_ready_status "$dir" "task-no-$tool" "$url"
     set +e
     out=$(FM_ROOT_OVERRIDE="$dir/root" FM_HOME="$dir/home" \
       FM_TEST_GUARD_LOG="$dir/guard.log" PATH="$notool" \
@@ -2239,6 +2302,7 @@ EOF
 
   # Arming is where a missing CLI can still be reported, so it refuses there.
   write_task_meta "$dir" task-b
+  write_ready_status "$dir" task-b "$url"
   set +e
   out=$(FM_ROOT_OVERRIDE="$dir/root" FM_HOME="$dir/home" \
     FM_TEST_GUARD_LOG="$dir/guard.log" PATH="$noglab" \
@@ -3145,6 +3209,7 @@ test_retirement_queue_failure_and_receipt_tampering() {
   fm_pr_poll_snapshot_capture "$state" task-a "$POLL" || fail "could not snapshot receipt tamper fixture"
   fm_pr_poll_retirement_publish "$state" task-a "$POLL" merged || fail "could not publish receipt tamper fixture"
   printf 'extra\n' >> "$state/task-a.pr-poll-retirement"
+  write_ready_status "$dir" task-a https://github.com/o/r/pull/10
   before=$(state_snapshot "$state")
   fm_pr_poll_retirement_recover_one "$state" task-a "$POLL" \
     && fail "malformed receipt authorized poll deletion"
@@ -3313,6 +3378,7 @@ test_authority_persistence_refuses_rebound_metadata() {
   write_task_meta "$dir" task-a
   run_check_entry "$dir" task-a "$url_a" >/dev/null 2> "$dir/seed.err" \
     || fail "rebind: could not arm the original poll"
+  write_ready_status "$dir" task-a "$url_b"
   cat > "$dir/rebind.sh" <<SH
 #!/usr/bin/env bash
 "$PR_CHECK" task-a "$url_b" >/dev/null
@@ -3414,6 +3480,7 @@ test_authority_retirement_preserves_replacement() {
   write_task_meta "$dir" task-a
   run_check_entry "$dir" task-a "$url_a" >/dev/null 2> "$dir/seed.err" \
     || fail "replacement: could not arm the original poll"
+  write_ready_status "$dir" task-a "$url_b"
   queue_merge "$dir" "$url_a"
   # The replacement runs inside the watcher, whose environment names the real
   # firstmate root, so restore the fixture root every other arming here uses.
@@ -3720,6 +3787,7 @@ test_device_rerecord_serializes_direct_rearm() {
   cp "$state/task-a.pr-poll" "$dir/published.pr-poll"
   cp "$state/task-a.pr-poll-registration" "$dir/published.registration"
   cp "$state/task-a.check.sh" "$dir/published.check.sh"
+  write_ready_status "$dir" task-a "$url_b"
   start_poll_publish_holder "$dir" "$state" task-a
   FM_ROOT_OVERRIDE="$dir/root" FM_HOME="$dir/home" FM_TEST_GUARD_LOG="$dir/guard.log" \
     PATH="$dir/fakebin:$BASE_PATH" "$PR_CHECK" task-a "$url_b" > "$dir/rearm.out" 2> "$dir/rearm.err" &
