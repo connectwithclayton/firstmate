@@ -2622,12 +2622,18 @@ clear_orphaned_scout_pr_identities() {
     [ -f "$meta" ] && [ ! -L "$meta" ] || continue
     id=$(basename "$meta" .meta)
     fm_pr_task_id_valid "$id" || continue
+    [ "$(fm_meta_get "$meta" kind)" = scout ] || continue
+    grep -q '^pr=' "$meta" || continue
     control="$STATE/.control-$id.lock"
     fm_lock_acquire_wait "$control" || { failed=1; continue; }
     if [ "$(fm_meta_get "$meta" kind)" = scout ] && grep -q '^pr=' "$meta"; then
       if fm_pr_poll_snapshot_capture "$STATE" "$id" "$SCRIPT_DIR/fm-pr-poll.sh"; then
         :
-      elif fm_pr_metadata_identity_parse "$meta"; then
+      elif [ ! -e "$STATE/$id.check.sh" ] && [ ! -L "$STATE/$id.check.sh" ] \
+        && [ ! -e "$STATE/$id.pr-poll" ] && [ ! -L "$STATE/$id.pr-poll" ] \
+        && [ ! -e "$STATE/$id.pr-poll-registration" ] && [ ! -L "$STATE/$id.pr-poll-registration" ] \
+        && [ ! -e "$STATE/$id.pr-poll-retirement" ] && [ ! -L "$STATE/$id.pr-poll-retirement" ] \
+        && fm_pr_metadata_identity_parse "$meta"; then
         url=$FM_PR_META_URL
         fm_pr_scout_metadata_identity_clear "$STATE" "$id" "$url" || failed=1
       else

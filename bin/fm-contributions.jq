@@ -56,11 +56,13 @@ def scout_identity($input; $task):
   or any(($input.backlog.records // [])[]; .structured == true and .id == $task and .kind == "scout");
 def migrate_record($input; $task):
   if .kind != "pr" then .
-  elif scout_identity($input; $task) then
-    .ownership = {state:"rejected",kind:"scout",source:"legacy-scout"}
-  elif (.ownership | valid_ownership) then .
   else pr_ownership($input; $task; .url) as $ownership
-    | .ownership = ($ownership // {state:"ambiguous",kind:null,source:"legacy-unclassified"})
+    | if $ownership != null then .ownership = $ownership
+      elif .ownership.state == "owned" and (.ownership | valid_ownership) then .
+      elif scout_identity($input; $task) then
+        .ownership = {state:"rejected",kind:"scout",source:"legacy-scout"}
+      elif (.ownership | valid_ownership) then .
+      else .ownership = {state:"ambiguous",kind:null,source:"legacy-unclassified"} end
   end;
 def migrate_document($input):
   .task as $task
@@ -79,7 +81,7 @@ def known($input; $saved):
            else {} end)]
    + [$saved[] | .task as $task
       | .records[]
-      | select(.kind != "pr" or (.ownership.state == "owned" and (scout_identity($input; $task) | not)))
+      | select(.kind != "pr" or .ownership.state == "owned")
       | {task:$task,url} + (if .kind == "pr" then {ownership} else {} end)])
   | unique_by([.task,.url])
   # A retired record ends that task's ownership even while a backlog link remains.

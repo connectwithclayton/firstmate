@@ -2786,6 +2786,71 @@ test_scout_metadata_cleanup_recovers_without_poll_artifacts() {
   pass "scout PR metadata cleanup recovers without poll artifacts"
 }
 
+test_scout_cleanup_skips_unrelated_control_locks() {
+  local dir state holder rc
+  dir=$(make_case scout-cleanup-ordinary-lock)
+  state="$dir/home/state"
+  write_task_meta "$dir" ordinary
+  add_stop_custom_check "$dir"
+  FM_STATE_OVERRIDE="$state" FM_ROOT_OVERRIDE="$ROOT" bash -c '
+    . "$1"
+    fm_lock_acquire_wait "$2"
+    : > "$3"
+    while :; do sleep 1; done
+  ' _ "$ROOT/bin/fm-wake-lib.sh" "$state/.control-ordinary.lock" "$dir/lock-ready" &
+  holder=$!
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    [ -e "$dir/lock-ready" ] && break
+    sleep 0.1
+  done
+  [ -e "$dir/lock-ready" ] || { kill "$holder" 2>/dev/null || true; fail "could not hold ordinary task control lock"; }
+  set +e
+  perl -e 'alarm 3; exec @ARGV or die $!' env \
+    FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" FM_CHECK_INTERVAL=0 \
+    FM_POLL=0.02 FM_HEARTBEAT=999999 FM_SIGNAL_GRACE=0 PATH="$dir/fakebin:$BASE_PATH" \
+    "$WATCH" > "$dir/watch.out" 2> "$dir/watch.err"
+  rc=$?
+  set -e
+  kill "$holder" 2>/dev/null || true
+  wait "$holder" 2>/dev/null || true
+  [ "$rc" -eq 0 ] || fail "unrelated control lock stalled watcher startup: $(cat "$dir/watch.err")"
+  case "$(cat "$dir/watch.out")" in
+    check:*z-stop.check.sh:*stop-cycle) ;;
+    *) fail "watcher did not pass the unrelated control lock: $(cat "$dir/watch.out")" ;;
+  esac
+  pass "scout cleanup skips ordinary task control locks"
+}
+
+test_scout_metadata_cleanup_preserves_partial_poll() {
+  local dir state rc
+  dir=$(make_case scout-partial-poll-recovery)
+  state="$dir/home/state"
+  fm_write_meta "$state/scout.meta" \
+    'window=session:fm-scout' \
+    "worktree=$dir/wt" \
+    "project=$dir/project" \
+    'kind=scout' \
+    'mode=scout' \
+    'backend=tmux' \
+    'pr=https://github.com/o/r/pull/93' \
+    'pr_head=0123456789abcdef0123456789abcdef01234567'
+  printf 'partial generation\n' > "$state/scout.pr-poll"
+  chmod 0600 "$state/scout.pr-poll"
+  add_stop_custom_check "$dir"
+
+  set +e
+  run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/watch.out" 2> "$dir/watch.err"
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || fail "partial scout poll recovery failed: $(cat "$dir/watch.err")"
+  grep -qx 'pr=https://github.com/o/r/pull/93' "$state/scout.meta" \
+    || fail "partial scout poll lost its recovery identity"
+  [ -f "$state/scout.pr-poll" ] || fail "partial scout poll sidecar disappeared without authenticated retirement"
+  [ "$(cat "$dir/watch.out")" = "check: stale scout PR metadata could not be retired" ] \
+    || fail "partial scout poll did not surface recovery failure: $(cat "$dir/watch.out")"
+  pass "partial scout poll preserves identity for authenticated recovery"
+}
+
 test_retirement_crash_recovery() {
   local dir state rc raw_count drain_count historical_poll
 
@@ -3755,6 +3820,8 @@ test_different_merged_pr_for_same_task_is_not_absorbed
 test_persistent_secondmate_retirement_is_poll_only
 test_scout_poll_residue_is_retired_before_execution
 test_scout_metadata_cleanup_recovers_without_poll_artifacts
+test_scout_cleanup_skips_unrelated_control_locks
+test_scout_metadata_cleanup_preserves_partial_poll
 test_retirement_crash_recovery
 test_external_merge_transition_retires_only_terminal_poll
 test_retirement_refuses_replacement_and_nonterminal_results

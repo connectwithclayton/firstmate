@@ -1983,15 +1983,17 @@ scout_report_lines() {
 
 BACKLOG_JSON=$(backlog_json) || { echo "fm-fleet-snapshot: backlog read failed" >&2; exit 1; }
 contribution_tasks_json() {
-  local meta id merge_authority
+  local meta id kind merge_authority
   for meta in "$STATE"/*.meta; do
     [ -f "$meta" ] && [ ! -L "$meta" ] || continue
     id=$(basename "$meta" .meta)
+    kind=$(meta_value "$meta" kind)
+    [ -n "$kind" ] || kind=ship
     merge_authority=unknown
     if fm_merge_authority_resolve "$FM_HOME" "$STATE" "$meta" "$id"; then
       merge_authority=$FM_MERGE_AUTHORITY
     fi
-    jq -n --arg id "$id" --arg kind "$(meta_value "$meta" kind)" \
+    jq -n --arg id "$id" --arg kind "$kind" \
       --arg url "$(meta_value "$meta" pr)" --arg head "$(meta_value "$meta" pr_head)" \
       --arg merge_authority "$merge_authority" \
       '{id:$id,kind:$kind,pr:(if $kind == "scout" then {url:"",head:""} else {url:$url,head:$head} end),merge_authority:$merge_authority}'
