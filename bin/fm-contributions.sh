@@ -8,7 +8,7 @@
 #   fm-contributions.sh verdict <task> <url> <judged-head> <source-url> <captain|fleet|maintainer|nobody> <summary>
 #   fm-contributions.sh ack <task> <url> <event-token>
 #   fm-contributions.sh retire <task> <url> captain <reason>
-#   fm-contributions.sh scrub-scout-pr <task>
+#   fm-contributions.sh migrate-ownership <task>
 #   fm-contributions.sh arm [--if-owned]
 #
 # snapshot is read-only and never contacts a forge. Its input is the canonical
@@ -23,10 +23,13 @@
 # new error stamps, and clears their legacy errors without changing observation,
 # timestamps or ownership evidence.
 #
-# This script owns fm-contributions.v1: one atomic file per durable task with
+# This script owns fm-contributions.v2: one atomic file per durable task with
 # task and records[]. Each record contains url, kind, checked_at, error,
 # observation, verdict, seen event tokens, pending events, notified tokens, and
-# retired provenance once retired.
+# retired provenance once retired. Pull-request records also carry ownership
+# provenance. Legacy v1 pull-request records migrate to owned only when current
+# ship identity proves the exact URL, to rejected for a current scout, or to an
+# ambiguous reconciliation-only record when the former identity is gone.
 # observation is one coherent forge read (a PR head is rechecked after fetching
 # checks/reviews). Checks are normalized by name, id, started_at, status and
 # conclusion; projection picks the newest attempt per distinct name. The last
@@ -210,50 +213,67 @@ write_record() { # task record-json-file
   staged=$(umask 077; mktemp "$dir/.contributions.XXXXXX")
   # Preserve other contributions owned by this same task.
   if [ -f "$file" ]; then
-    jq_lib -ne --arg task "$task" --slurpfile record "$file" '$record[0] | valid_record and .task == $task' >/dev/null || fail 'invalid stored contribution record'
+    jq_lib -ne --arg task "$task" --slurpfile record "$file" \
+      '$record[0] | valid_record and .schema == "fm-contributions.v2" and .task == $task' >/dev/null \
+      || fail 'invalid stored contribution record'
     jq --slurpfile row "$2" '.records = ([.records[] | select(.url != $row[0].url)] + $row)' "$file" > "$staged"
   else
-    jq -n --arg task "$task" --slurpfile row "$2" '{schema:"fm-contributions.v1",task:$task,records:$row}' > "$staged"
+    jq -n --arg task "$task" --slurpfile row "$2" '{schema:"fm-contributions.v2",task:$task,records:$row}' > "$staged"
+  fi
+  if ! jq_lib -ne --arg task "$task" --slurpfile record "$staged" \
+    '$record[0] | valid_record and .schema == "fm-contributions.v2" and .task == $task' >/dev/null; then
+    rm -f -- "$staged"
+    fail 'invalid contribution update'
   fi
   chmod 600 "$staged"
   fm_pr_regular_destination_on_device_or_absent "$file" "$device" || fail 'contribution destination changed'
   mv -f -- "$staged" "$file"
 }
 
-scrub_scout_pr_records() {
-  local task=$1 file dir device staged
+migrate_saved() {
+  local only=${1:-} task file dir device staged needed
+  while IFS= read -r task; do
+    [ -n "$task" ] || continue
+    file="$DATA/$task/contributions.json"
+    needed=$(jq_lib -nr --slurpfile input "$TMP/input.json" --slurpfile record "$file" \
+      '$record[0] != ($record[0] | migrate_document($input[0]))') \
+      || fail 'could not classify contribution ownership'
+    [ "$needed" = true ] || continue
+    dir="$DATA/$task"
+    device=$(fm_pr_file_device "$dir") || fail 'contribution directory unavailable'
+    fm_pr_regular_destination_on_device_or_absent "$file" "$device" \
+      || fail 'unsafe contribution record destination'
+    staged=$(umask 077; mktemp "$dir/.contributions.XXXXXX") \
+      || fail 'could not stage contribution migration'
+    if ! jq_lib -n --slurpfile input "$TMP/input.json" --slurpfile record "$file" \
+      '$record[0] | migrate_document($input[0])' > "$staged" \
+      || ! chmod 0600 "$staged" \
+      || ! jq_lib -ne --arg task "$task" --slurpfile record "$staged" \
+        '($record | length) == 1 and ($record[0] | valid_record)
+          and $record[0].schema == "fm-contributions.v2" and $record[0].task == $task' >/dev/null \
+      || ! fm_pr_regular_destination_on_device_or_absent "$file" "$device" \
+      || ! mv -f -- "$staged" "$file"; then
+      rm -f -- "$staged"
+      fail 'could not publish contribution ownership migration'
+    fi
+  done < <(jq -r --arg only "$only" '.[] | select($only == "" or .task == $only) | .task' "$TMP/saved.json")
+  read_saved
+}
+
+migrate_task_ownership() {
+  local task=$1 file
   fm_pr_task_id_valid "$task" || fail 'invalid contribution task'
   acquire
   get_input
-  jq -e --arg task "$task" \
-    'any(.tasks[]?; .id == $task and .kind == "scout")' \
-    "$TMP/input.json" >/dev/null || fail 'task is not a scout'
-  dir="$DATA/$task"
-  file="$dir/contributions.json"
-  if [ ! -e "$file" ] && [ ! -L "$file" ]; then
-    return 0
+  jq -e --arg task "$task" 'any(.tasks[]?; .id == $task)' "$TMP/input.json" >/dev/null \
+    || fail 'task identity is unavailable for ownership migration'
+  read_saved
+  file="$DATA/$task/contributions.json"
+  if { [ -e "$file" ] || [ -L "$file" ]; } \
+    && ! jq -e --arg task "$task" 'any(.[]; .task == $task)' "$TMP/saved.json" >/dev/null; then
+    fail 'invalid stored contribution record'
   fi
-  [ -d "$dir" ] && [ ! -L "$dir" ] || fail 'unsafe contribution directory'
-  device=$(fm_pr_file_device "$dir") || fail 'contribution directory unavailable'
-  fm_pr_regular_destination_on_device_or_absent "$file" "$device" \
-    || fail 'unsafe contribution record destination'
-  [ "$(wc -c < "$file")" -le 1048576 ] \
-    || fail 'contribution record is too large'
-  jq_lib -ne --arg task "$task" --slurpfile record "$file" \
-    '($record | length) == 1 and ($record[0] | valid_record) and $record[0].task == $task' >/dev/null \
-    || fail 'invalid stored contribution record'
-  jq -e 'any(.records[]; .kind == "pr")' "$file" >/dev/null || return 0
-  staged=$(umask 077; mktemp "$dir/.contributions.XXXXXX") \
-    || fail 'could not stage contribution cleanup'
-  if ! jq '.records |= map(select(.kind != "pr"))' "$file" > "$staged" \
-    || ! chmod 0600 "$staged" \
-    || ! jq_lib -ne --arg task "$task" --slurpfile record "$staged" \
-      '($record | length) == 1 and ($record[0] | valid_record) and $record[0].task == $task' >/dev/null \
-    || ! fm_pr_regular_destination_on_device_or_absent "$file" "$device" \
-    || ! mv -f -- "$staged" "$file"; then
-    rm -f -- "$staged"
-    fail 'could not publish contribution cleanup'
-  fi
+  migrate_saved "$task"
 }
 
 forge() {
@@ -389,15 +409,22 @@ settle_final() { # canonical-url task... : copy the URL's final observation to e
     | $final | sort_by([.retired != null, .error != null]) | first' > "$TMP/final.json"
   for task in "$@"; do
     fm_pr_task_id_valid "$task" || { printf 'contributions: invalid durable task id\n'; continue; }
+    jq_lib -n --slurpfile input "$TMP/input.json" --slurpfile saved "$TMP/saved.json" \
+      --arg task "$task" --arg url "$url" '
+      [known($input[0];$saved[0])[] | select(.task == $task and .url == $url)]
+      | first | .ownership // null' > "$TMP/ownership.json"
     jq -n --slurpfile saved "$TMP/saved.json" --arg task "$task" --arg url "$url" '
       [$saved[0][] | select(.task == $task) | .records[] | select(.url == $url)] | first' > "$TMP/old.json"
     if jq -e '. == null' "$TMP/old.json" >/dev/null; then
-      jq -n --slurpfile final "$TMP/final.json" '
-        $final[0] + {error:null,pending:[],notified:[]} | del(.retired)' > "$TMP/row.json"
+      jq -n --slurpfile final "$TMP/final.json" --slurpfile ownership "$TMP/ownership.json" '
+        $final[0] + {error:null,pending:[],notified:[]} | del(.retired)
+        | if .kind == "pr" then .ownership = $ownership[0] else del(.ownership) end' > "$TMP/row.json"
       write_record "$task" "$TMP/row.json"
     elif jq -e '(.observation.state | IN("merged","closed") | not) or .error != null' "$TMP/old.json" >/dev/null; then
-      jq -n --slurpfile final "$TMP/final.json" --slurpfile old "$TMP/old.json" '
-        $old[0] + {observation:$final[0].observation,checked_at:$final[0].checked_at,error:null}' > "$TMP/row.json"
+      jq -n --slurpfile final "$TMP/final.json" --slurpfile old "$TMP/old.json" \
+        --slurpfile ownership "$TMP/ownership.json" '
+        $old[0] + {observation:$final[0].observation,checked_at:$final[0].checked_at,error:null}
+        | if .kind == "pr" then .ownership = $ownership[0] else del(.ownership) end' > "$TMP/row.json"
       write_record "$task" "$TMP/row.json"
     fi
   done
@@ -422,6 +449,7 @@ poll() {
   acquire
   get_input
   read_saved
+  migrate_saved
   [ "$ERRORS" -eq 0 ] || printf 'contributions: %s unreadable durable record(s)\n' "$ERRORS"
   clear_unsupported_errors
   # Only supported URLs enter final settlement and the forge-read rotation.
@@ -464,9 +492,15 @@ poll() {
     for task in "${row[@]:1}"; do
       fm_pr_task_id_valid "$task" || { printf 'contributions: invalid durable task id\n'; continue; }
       old="$TMP/old.json"
-      jq -n --slurpfile saved "$TMP/saved.json" --arg task "$task" --arg url "$url" --arg kind "$kind" '
-        ([$saved[0][] | select(.task == $task) | .records[] | select(.url == $url)] | first)
-        // {url:$url,kind:$kind,checked_at:null,observation:null,verdict:null,seen:[],pending:[],notified:[]}' > "$old"
+      jq_lib -n --slurpfile input "$TMP/input.json" --slurpfile saved "$TMP/saved.json" \
+        --arg task "$task" --arg url "$url" '
+        [known($input[0];$saved[0])[] | select(.task == $task and .url == $url)]
+        | first | .ownership // null' > "$TMP/ownership.json"
+      jq -n --slurpfile saved "$TMP/saved.json" --slurpfile ownership "$TMP/ownership.json" \
+        --arg task "$task" --arg url "$url" --arg kind "$kind" '
+        (([$saved[0][] | select(.task == $task) | .records[] | select(.url == $url)] | first)
+          // {url:$url,kind:$kind,checked_at:null,observation:null,verdict:null,seen:[],pending:[],notified:[]})
+        | if $kind == "pr" then .ownership = $ownership[0] else del(.ownership) end' > "$old"
       if [ "$observed" -eq 0 ]; then
         jq -n --arg now "$NOW" --slurpfile old "$old" --slurpfile observation "$TMP/observation.json" '
           $old[0] as $old | $observation[0] as $o
@@ -493,6 +527,7 @@ arm() {
   acquire
   if [ "${1:-}" = --if-owned ]; then
     get_input; read_saved
+    migrate_saved
     if [ "$ERRORS" -eq 0 ] && ! jq_lib -ne --slurpfile input "$TMP/input.json" \
       --slurpfile saved "$TMP/saved.json" 'known($input[0];$saved[0]) | length > 0' >/dev/null; then
       return 0
@@ -532,15 +567,15 @@ case "${1:-}" in
        | $saved[0][] | select(.task == $owned.task) | .records[] | select(.url == $owned.url)
        | .url as $url | .pending[] | . + {task:$owned.task,url:$url}]'
     ;;
-  scrub-scout-pr)
-    [ "$#" -eq 2 ] || fail 'scrub-scout-pr needs one task'
-    scrub_scout_pr_records "$2"
+  migrate-ownership)
+    [ "$#" -eq 2 ] || fail 'migrate-ownership needs one task'
+    migrate_task_ownership "$2"
     ;;
   verdict|ack)
     action=$1; shift
     [ "$#" -ge 3 ] || fail 'task, URL and evidence required'
     task=$1; url=$2; shift 2
-    acquire; get_input; read_saved
+    acquire; get_input; read_saved; migrate_saved "$task"
     jq_lib -ne --slurpfile input "$TMP/input.json" --arg task "$task" --arg url "$url" --slurpfile saved "$TMP/saved.json" \
       'any(known($input[0];$saved[0])[]; .task == $task and .url == $url)' >/dev/null \
       || fail 'contribution is not owned by this durable task'
@@ -565,7 +600,7 @@ case "${1:-}" in
     fm_pr_task_id_valid "$task" || fail 'invalid contribution task'
     [ "$4" = captain ] || fail "invalid retire actor '$4'; expected: captain"
     [ -n "${5//[[:space:]]/}" ] || fail 'retire needs a non-empty reason'
-    acquire; read_saved
+    acquire; get_input; read_saved; migrate_saved "$task"
     jq -e --arg task "$task" --arg url "$url" '.[] | select(.task == $task) | .records[] | select(.url == $url)' "$TMP/saved.json" > "$TMP/row.json" \
       || fail 'contribution is not recorded for this durable task'
     if jq -e '.retired != null' "$TMP/row.json" >/dev/null; then

@@ -192,7 +192,7 @@ test_non_pool_teardown_ignores_task_set_lock() {
   pass "fm-teardown: non-pool cleanup ignores unrelated task publication locks"
 }
 
-test_scout_teardown_scrubs_pr_contribution_state() {
+test_scout_teardown_migrates_pr_contribution_state() {
   local dir id=scout-contribution pending
   dir=$(make_case scout-contribution-cleanup)
   fm_write_meta "$dir/home/state/$id.meta" \
@@ -205,17 +205,19 @@ test_scout_teardown_scrubs_pr_contribution_state() {
     > "$dir/home/data/$id/contributions.json"
 
   run_case "$dir" "$id" > "$dir/stdout" 2> "$dir/stderr" \
-    || fail "scout teardown failed while scrubbing contribution state: $(cat "$dir/stderr")"
+    || fail "scout teardown failed while migrating contribution state: $(cat "$dir/stderr")"
   assert_absent "$dir/home/state/$id.meta" "scout teardown left task metadata"
-  jq -e '.records == []' "$dir/home/data/$id/contributions.json" >/dev/null \
-    || fail "scout teardown retained stale PR contribution ownership"
+  jq -e '.schema == "fm-contributions.v2" and (.records | length) == 1
+    and .records[0].ownership == {state:"rejected",kind:"scout",source:"legacy-scout"}
+    and (.records[0].pending | length) == 1' "$dir/home/data/$id/contributions.json" >/dev/null \
+    || fail "scout teardown did not retain stale PR state as rejected provenance"
   pending=$(FM_HOME="$dir/home" FM_ROOT_OVERRIDE="$ROOT" \
     FM_STATE_OVERRIDE="$dir/home/state" FM_DATA_OVERRIDE="$dir/home/data" \
     "$ROOT/bin/fm-contributions.sh" pending) \
     || fail 'could not read pending contributions after scout teardown'
   printf '%s' "$pending" | jq -e '. == []' >/dev/null \
     || fail "scout teardown left pending PR ownership: $pending"
-  pass "fm-teardown: scout PR contribution state is scrubbed before identity removal"
+  pass "fm-teardown: scout PR contribution state becomes non-owning before identity removal"
 }
 
 test_metadata_lock_serializes_destructive_cleanup() {
@@ -1449,7 +1451,7 @@ test_already_gone_endpoint_still_completes_without_a_refusal() {
 test_invalid_endpoint_records_refuse_before_mutation
 test_control_lock_contention_refuses_before_mutation
 test_non_pool_teardown_ignores_task_set_lock
-test_scout_teardown_scrubs_pr_contribution_state
+test_scout_teardown_migrates_pr_contribution_state
 test_metadata_lock_serializes_destructive_cleanup
 test_supported_backend_endpoint_records_validate
 test_orca_composite_worktree_id_validates

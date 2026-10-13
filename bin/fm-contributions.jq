@@ -11,10 +11,18 @@ def pull_request_url:
   type == "string" and (test("^https://github.com/[A-Za-z0-9-]+/[A-Za-z0-9._-]+/pull/[1-9][0-9]*$")
     or test("^https://[A-Za-z0-9.-]+/[A-Za-z0-9._/-]+/-/merge_requests/[1-9][0-9]*$"));
 def sha: type == "string" and test("^[a-fA-F0-9]{40}$");
+def valid_ownership:
+  type == "object" and (.state | IN("owned","rejected","ambiguous"))
+  and (.source | IN("task-pr","backlog-link","legacy-scout","legacy-unclassified"))
+  and (if .state == "owned" then .kind == "ship" and (.source | IN("task-pr","backlog-link"))
+       elif .state == "rejected" then .kind == "scout" and .source == "legacy-scout"
+       else .kind == null and .source == "legacy-unclassified" end);
 def valid_record:
-  try (.schema == "fm-contributions.v1" and (.task | type == "string")
+  try (.schema as $schema
+  | ($schema | IN("fm-contributions.v1","fm-contributions.v2")) and (.task | type == "string")
   and (.records | type == "array")
   and all(.records[]; (.url | canonical_url) and (.kind == "pr" or .kind == "issue")
+    and (if .kind == "pr" and $schema == "fm-contributions.v2" then (.ownership | valid_ownership) else true end)
     and (.pending | type == "array") and (.seen | type == "array")
     and all(.pending[]; (.token | type == "string" and length > 0))
     and all(.seen[]; type == "string")
@@ -34,22 +42,49 @@ def valid_record:
         and (.mergeable | IN("mergeable","conflicting","unknown")) and (.can_merge | type == "boolean")
         and (.review_decision | IN("","APPROVED","CHANGES_REQUESTED","REVIEW_REQUIRED"))
         else (.ready | type == "boolean") end))))) catch false;
+def pr_ownership($input; $task; $url):
+  ([($input.tasks // [])[]
+      | select(.id == $task and .kind == "ship" and .pr.url == $url)
+      | {state:"owned",kind:"ship",source:"task-pr"}]
+   + [($input.backlog.records // [])[]
+      | select(.structured == true and .id == $task and .kind == "ship")
+      | select(any((.links // [])[]; . == $url))
+      | {state:"owned",kind:"ship",source:"backlog-link"}])
+  | first;
+def scout_identity($input; $task):
+  any(($input.tasks // [])[]; .id == $task and .kind == "scout")
+  or any(($input.backlog.records // [])[]; .structured == true and .id == $task and .kind == "scout");
+def migrate_record($input; $task):
+  if .kind != "pr" then .
+  elif scout_identity($input; $task) then
+    .ownership = {state:"rejected",kind:"scout",source:"legacy-scout"}
+  elif (.ownership | valid_ownership) then .
+  else pr_ownership($input; $task; .url) as $ownership
+    | .ownership = ($ownership // {state:"ambiguous",kind:null,source:"legacy-unclassified"})
+  end;
+def migrate_document($input):
+  .task as $task
+  | .records |= map(migrate_record($input; $task))
+  | .schema = "fm-contributions.v2";
 def known($input; $saved):
-  ([($input.tasks // [])[] | select(.kind != "secondmate" and .kind != "scout")
-     | select(.pr.url | canonical_url) | {task:.id,url:.pr.url}]
+  ([($input.tasks // [])[] | select(.kind == "ship")
+     | select(.pr.url | canonical_url)
+     | {task:.id,url:.pr.url,ownership:{state:"owned",kind:"ship",source:"task-pr"}}]
    + [($input.backlog.records // [])[] | select(.structured == true) as $task
       | ($task.links // [])[] | select(canonical_url) as $url
-      | select($task.kind != "scout" or ($url | pull_request_url | not))
-      | {task:$task.id,url:$url}]
+      | select(($url | pull_request_url | not) or $task.kind == "ship")
+      | {task:$task.id,url:$url}
+        + (if ($url | pull_request_url) then
+             {ownership:{state:"owned",kind:"ship",source:"backlog-link"}}
+           else {} end)]
    + [$saved[] | .task as $task
       | .records[]
-      | select(.kind != "pr" or (any(($input.tasks // [])[]; .id == $task and .kind == "scout") | not))
-      | select(.kind != "pr" or (any(($input.backlog.records // [])[]; .structured == true and .id == $task and .kind == "scout") | not))
-      | {task:$task,url}])
+      | select(.kind != "pr" or (.ownership.state == "owned" and (scout_identity($input; $task) | not)))
+      | {task:$task,url} + (if .kind == "pr" then {ownership} else {} end)])
   | unique_by([.task,.url])
   # A retired record ends that task's ownership even while a backlog link remains.
   | [$saved[] | .task as $task | .records[] | select(.retired != null) | {task:$task,url}] as $retired
-  | map(select(. as $pair | any($retired[]; . == $pair) | not));
+  | map(select(. as $pair | any($retired[]; .task == $pair.task and .url == $pair.url) | not));
 def latest_checks:
   group_by(.name) | map(sort_by([(.started_at // ""),(.id // 0)]) | last);
 def projected($input; $saved; $now; $max_age):

@@ -154,8 +154,10 @@ SH
   with_home "$home" env FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-promote.sh" \
     scout --mode direct-PR --yolo off >/dev/null \
     || fail 'could not promote the cleaned scout fixture'
-  jq -e '.records == []' "$home/data/scout/contributions.json" >/dev/null \
-    || fail 'promotion retained stale scout PR ownership'
+  jq -e '.schema == "fm-contributions.v2" and (.records | length) == 1
+    and .records[0].ownership == {state:"rejected",kind:"scout",source:"legacy-scout"}
+    and (.records[0].pending | length) == 1' "$home/data/scout/contributions.json" >/dev/null \
+    || fail 'promotion did not retain stale scout PR state as rejected provenance'
   input="$home/input.json"
   with_home "$home" "$ROOT/bin/fm-fleet-snapshot.sh" --contribution-input > "$input" \
     || fail 'could not collect promoted contribution input'
@@ -167,7 +169,70 @@ SH
     || fail 'promoted contribution poll failed'
   [ -z "$poll_out" ] || fail "promoted scout residue emitted a wake: $poll_out"
   [ ! -e "$home/forge-calls" ] || fail 'promoted scout residue reached the forge'
-  pass 'scout PR pending state is scrubbed before promotion'
+  pass 'scout PR pending state becomes durable non-ownership before promotion'
+}
+
+test_identity_gone_legacy_pr_is_retained_for_reconciliation() {
+  local home input out pending poll_out
+  home=$(new_home identity-gone-legacy)
+  record "$home" ghost 10 open mergeable
+  printf '# Backlog\n\nManual home without a structured task row.\n' > "$home/data/backlog.md"
+  mutate_record "$home" ghost '.records[0].pending=[{token:"comment:1",type:"comment",source:"https://github.com/o/r/pull/10#issuecomment-1",head:null,body:"review"}] | .records[0].seen=["comment:1"]'
+  cat > "$home/fakebin/gh" <<'SH'
+#!/bin/sh
+printf 'forge-called\n' >> "$FM_HOME/forge-calls"
+exit 1
+SH
+  chmod +x "$home/fakebin/gh"
+
+  pending=$(with_home "$home" "$ROOT/bin/fm-contributions.sh" pending) \
+    || fail 'could not read identity-gone legacy pending contributions'
+  printf '%s' "$pending" | jq -e '. == []' >/dev/null \
+    || fail "identity-gone legacy PR exposed pending ownership: $pending"
+  poll_out=$(with_home "$home" "$ROOT/bin/fm-contributions.sh" poll) \
+    || fail 'identity-gone legacy migration poll failed'
+  [ -z "$poll_out" ] || fail "identity-gone legacy PR emitted an outcome: $poll_out"
+  [ ! -e "$home/forge-calls" ] || fail 'identity-gone legacy PR reached the forge'
+  jq -e '.schema == "fm-contributions.v2" and (.records | length) == 1
+    and .records[0].ownership == {state:"ambiguous",kind:null,source:"legacy-unclassified"}
+    and (.records[0].pending | length) == 1' "$home/data/ghost/contributions.json" >/dev/null \
+    || fail 'identity-gone legacy PR was not retained as ambiguous reconciliation data'
+  input="$home/input.json"
+  with_home "$home" "$ROOT/bin/fm-fleet-snapshot.sh" --contribution-input > "$input" \
+    || fail 'could not collect identity-gone contribution input'
+  out=$(with_home "$home" "$ROOT/bin/fm-contributions.sh" snapshot "$input" --all) \
+    || fail 'could not project identity-gone legacy state'
+  printf '%s' "$out" | jq -e '.known == 0 and .rows == []' >/dev/null \
+    || fail "ambiguous legacy PR remained owned: $out"
+  pass 'identity-gone legacy PR remains stored without ownership or monitoring'
+}
+
+test_legacy_ship_pr_ownership_survives_identity_removal() {
+  local home input out
+  home=$(new_home legacy-ship-provenance)
+  record "$home" delivery 11 open mergeable
+  fm_write_meta "$home/state/delivery.meta" \
+    "worktree=$home/wt" \
+    'kind=ship' \
+    'pr=https://github.com/o/r/pull/11' \
+    "pr_head=$HEAD_A"
+
+  with_home "$home" "$ROOT/bin/fm-contributions.sh" migrate-ownership delivery \
+    || fail 'could not migrate legacy ship ownership'
+  jq -e '.schema == "fm-contributions.v2"
+    and .records[0].ownership == {state:"owned",kind:"ship",source:"task-pr"}' \
+    "$home/data/delivery/contributions.json" >/dev/null \
+    || fail 'legacy ship ownership did not gain durable provenance'
+  rm "$home/state/delivery.meta"
+  printf '# Backlog\n\nManual home without a structured task row.\n' > "$home/data/backlog.md"
+  input="$home/input.json"
+  with_home "$home" "$ROOT/bin/fm-fleet-snapshot.sh" --contribution-input > "$input" \
+    || fail 'could not collect post-removal ship contribution input'
+  out=$(with_home "$home" "$ROOT/bin/fm-contributions.sh" snapshot "$input" --all) \
+    || fail 'could not project durable ship ownership'
+  printf '%s' "$out" | jq -e '.known == 1 and .rows[0].task == "delivery"' >/dev/null \
+    || fail "durable ship ownership was lost after identity removal: $out"
+  pass 'legacy ship PR ownership remains durable after identity removal'
 }
 
 test_newest_check_has_no_verdict() {
@@ -225,6 +290,8 @@ case "$*" in
 esac
 SH
   chmod +x "$home/fakebin/gh"
+  with_home "$home" "$ROOT/bin/fm-contributions.sh" migrate-ownership delivery \
+    || fail 'could not establish forge fixture ownership provenance'
 }
 
 with_home() {
@@ -487,6 +554,14 @@ test_retired_and_unsupported_coverage() {
   local home
   home=$(new_home retained)
   record "$home" retained 14 open mergeable
+  fm_write_meta "$home/state/retained.meta" \
+    "worktree=$home/wt" \
+    'kind=ship' \
+    'pr=https://github.com/o/r/pull/14' \
+    "pr_head=$HEAD_A"
+  with_home "$home" "$ROOT/bin/fm-contributions.sh" migrate-ownership retained \
+    || fail 'could not establish retired fixture ownership provenance'
+  rm "$home/state/retained.meta"
   printf '# Backlog\n\n## Queued\n' > "$home/data/backlog.md"
   bearings "$home" | jq -e '.contributions.known == 1 and .contributions.checked == 1
     and .contributions.proven_clear == true and .contributions.counts.maintainer == 1' >/dev/null \
@@ -767,7 +842,8 @@ test_record_task_identity_matches_dirname_basename() {
       file="$data/$name/contributions.json"
       want=$(basename "$(dirname "$file")")
       jq -n --arg task "$want" --arg url "https://github.com/o/r/pull/$n" --arg token "t$n" \
-        '{schema:"fm-contributions.v1",task:$task,records:[{url:$url,kind:"pr",checked_at:null,error:null,
+        '{schema:"fm-contributions.v2",task:$task,records:[{url:$url,kind:"pr",
+          ownership:{state:"owned",kind:"ship",source:"task-pr"},checked_at:null,error:null,
           pending:[{token:$token}],seen:[],verdict:null,observation:null}]}' > "$file"
       tasks+=("$want")
     done
@@ -779,7 +855,7 @@ test_record_task_identity_matches_dirname_basename() {
     tasks=()
   done
   mkdir -p "$home/data/named"
-  jq -n '{schema:"fm-contributions.v1",task:"other",records:[]}' > "$home/data/named/contributions.json"
+  jq -n '{schema:"fm-contributions.v2",task:"other",records:[]}' > "$home/data/named/contributions.json"
   if with_home "$home" "$ROOT/bin/fm-contributions.sh" pending > /dev/null 2>&1; then
     fail 'a record naming another task was accepted'
   fi
@@ -1369,7 +1445,7 @@ test_retire_is_idempotent_and_refuses_unknown_pairs() {
 }
 
 failures=0
-for test_name in test_actor_coverage test_stale_verdict test_unchecked_is_not_silence test_scout_pr_state_is_not_contribution_ownership test_scout_pr_state_cannot_reactivate_after_promotion test_newest_check_has_no_verdict test_comment_wake test_review_wake test_inline_wake test_ready_issue_wake test_fresh_issue_requires_maintainer test_missing_lane_remains_missing test_partial_freshness_keeps_measured_rows test_malformed_record_cannot_prove_silence test_issue_timeline_and_exact_ack test_verdict_retains_judged_head test_verdict_actor_values_are_discoverable test_observed_replacement_refreshes_verdict test_unobserved_head_leaves_verdict_unknown test_away_yolo_is_fleet_work test_away_yolo_cross_home_is_fleet_work test_retired_and_unsupported_coverage test_unsupported_forge_is_not_fleet_work test_held_unsupported_forge_is_not_captain_work test_unsupported_poll_is_silent_and_clears_legacy_errors test_legacy_cleanup_preserves_supported_failure test_shared_contribution_signal_wakes_once test_watcher_keeps_diagnostics_separate_from_contribution_wakes test_expired_child_unsupported_forge_stays_unmeasured test_watcher_surfaces_new_contribution_once test_home_summary_coverage test_unreadable_pending_is_not_empty test_record_task_identity_matches_dirname_basename test_read_only_views_create_no_state test_budget_refusal_between_calls test_budget_bounded_call_timeout test_genuine_failure_near_deadline_is_unavailable test_shared_url_observed_once test_terminal_contribution_settles test_late_owner_inherits_terminal_observation test_interrupted_multi_owner_poll_settles_every_owner test_done_task_open_pr_still_observed test_reservation_defers_later_url_when_fifteen_seconds_do_not_remain test_three_second_pr_reads_complete_fresh_in_one_cycle test_slow_read_deadline_kill_is_budget_refusal test_unmeasured_url_does_not_starve_the_tail test_budget_is_cut_down_to_the_watcher_check_bound test_arm_plumbs_a_configured_budget_into_the_check_shim test_unavailable_forge_records_error_and_wakes_once_per_episode test_late_owner_keeps_failure_episode_suppressed test_retire_ends_observation_of_a_gone_contribution test_late_owner_of_a_retired_final_contribution_is_not_retired test_retire_is_idempotent_and_refuses_unknown_pairs; do
+for test_name in test_actor_coverage test_stale_verdict test_unchecked_is_not_silence test_scout_pr_state_is_not_contribution_ownership test_scout_pr_state_cannot_reactivate_after_promotion test_identity_gone_legacy_pr_is_retained_for_reconciliation test_legacy_ship_pr_ownership_survives_identity_removal test_newest_check_has_no_verdict test_comment_wake test_review_wake test_inline_wake test_ready_issue_wake test_fresh_issue_requires_maintainer test_missing_lane_remains_missing test_partial_freshness_keeps_measured_rows test_malformed_record_cannot_prove_silence test_issue_timeline_and_exact_ack test_verdict_retains_judged_head test_verdict_actor_values_are_discoverable test_observed_replacement_refreshes_verdict test_unobserved_head_leaves_verdict_unknown test_away_yolo_is_fleet_work test_away_yolo_cross_home_is_fleet_work test_retired_and_unsupported_coverage test_unsupported_forge_is_not_fleet_work test_held_unsupported_forge_is_not_captain_work test_unsupported_poll_is_silent_and_clears_legacy_errors test_legacy_cleanup_preserves_supported_failure test_shared_contribution_signal_wakes_once test_watcher_keeps_diagnostics_separate_from_contribution_wakes test_expired_child_unsupported_forge_stays_unmeasured test_watcher_surfaces_new_contribution_once test_home_summary_coverage test_unreadable_pending_is_not_empty test_record_task_identity_matches_dirname_basename test_read_only_views_create_no_state test_budget_refusal_between_calls test_budget_bounded_call_timeout test_genuine_failure_near_deadline_is_unavailable test_shared_url_observed_once test_terminal_contribution_settles test_late_owner_inherits_terminal_observation test_interrupted_multi_owner_poll_settles_every_owner test_done_task_open_pr_still_observed test_reservation_defers_later_url_when_fifteen_seconds_do_not_remain test_three_second_pr_reads_complete_fresh_in_one_cycle test_slow_read_deadline_kill_is_budget_refusal test_unmeasured_url_does_not_starve_the_tail test_budget_is_cut_down_to_the_watcher_check_bound test_arm_plumbs_a_configured_budget_into_the_check_shim test_unavailable_forge_records_error_and_wakes_once_per_episode test_late_owner_keeps_failure_episode_suppressed test_retire_ends_observation_of_a_gone_contribution test_late_owner_of_a_retired_final_contribution_is_not_retired test_retire_is_idempotent_and_refuses_unknown_pairs; do
   ( "$test_name" ) || failures=$((failures + 1))
 done
 [ "$failures" -eq 0 ] || fail "$failures contribution regressions"
