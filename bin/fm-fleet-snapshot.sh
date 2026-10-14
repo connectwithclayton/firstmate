@@ -378,9 +378,24 @@ status_event_json() {  # <observed-status-log> [<contract-path>]
     '{path:$path,present:$present,kind:"event_history",last_event:{state:$verb,note:$note,raw:$raw,age_seconds:$age}}'
 }
 
-ready_pr_url_in_file() {  # <file> <delivery-mode>
+ready_pr_url_in_file() {  # <file> <delivery-mode> [<last-ineligible-line>]
+  local after=${3:-0}
   [ -f "$1" ] || return 1
-  status_latest_ready_pr_url "$2" < "$1"
+  case "$after" in ''|*[!0-9]*) return 1 ;; esac
+  status_latest_ready_pr_url "$2" "$((after + 1))" < "$1"
+}
+
+ready_pr_url_for_meta() {  # <meta> <status-file> <delivery-mode>
+  fm_pr_ready_after_read "$1" || return 1
+  ready_pr_url_in_file "$2" "$3" "${FM_PR_READY_AFTER_LINE:-0}"
+}
+
+ready_pr_url_rejected_for_meta() {  # <meta> <url>
+  local rejected
+  rejected=$(meta_value "$1" pr_rejected_url)
+  [ -n "$rejected" ] && [ "$rejected" = "$2" ] || return 1
+  fm_pr_ready_after_read "$1" || return 0
+  [ "$FM_PR_READY_AFTER_PRESENT" -eq 0 ]
 }
 
 backlog_json() (  # [<backlog-path>] - defaults to this home's $BACKLOG
@@ -783,17 +798,16 @@ task_json_lines() {
       pr=$FM_PR_META_URL
       pr_head=$(meta_value "$meta" pr_head)
     fi
+    pr_from_status=$(ready_pr_url_for_meta "$meta" "$status_log" "$mode" || true)
     if [ "$kind" = scout ]; then
       pr=
       pr_head=
       pr_source=absent
     elif [ -n "$pr" ]; then
       pr_source=meta
-    elif [ "$(meta_value "$meta" pr_rejected_url)" = "$(ready_pr_url_in_file "$status_log" "$mode" || true)" ] \
-      && [ -n "$(meta_value "$meta" pr_rejected_url)" ]; then
+    elif ready_pr_url_rejected_for_meta "$meta" "$pr_from_status"; then
       pr_source=absent
     else
-      pr_from_status=$(ready_pr_url_in_file "$status_log" "$mode" || true)
       pr=$pr_from_status
       pr_source=status_event
       if [ -z "$pr" ]; then
@@ -2009,15 +2023,15 @@ contribution_tasks_json() {
       legacy_url=$FM_PR_META_URL
       mode=$(meta_value "$meta" mode)
       status="$STATE/$id.status"
-      ready_url=$(ready_pr_url_in_file "$status" "$mode" || true)
+      ready_url=$(ready_pr_url_for_meta "$meta" "$status" "$mode" || true)
       if [ "$ready_url" = "$legacy_url" ] \
-        && [ "$ready_url" != "$(meta_value "$meta" pr_rejected_url)" ]; then
+        && ! ready_pr_url_rejected_for_meta "$meta" "$ready_url"; then
         pr_url=$legacy_url
         pr_head=$(meta_value "$meta" pr_head)
       fi
     elif [ -n "$(meta_value "$meta" pr_rejected_url)" ]; then
-      ready_url=$(ready_pr_url_in_file "$STATE/$id.status" "$(meta_value "$meta" mode)" || true)
-      if [ -n "$ready_url" ] && [ "$ready_url" != "$(meta_value "$meta" pr_rejected_url)" ]; then
+      ready_url=$(ready_pr_url_for_meta "$meta" "$STATE/$id.status" "$(meta_value "$meta" mode)" || true)
+      if [ -n "$ready_url" ] && ! ready_pr_url_rejected_for_meta "$meta" "$ready_url"; then
         pr_url=$ready_url
       fi
     fi

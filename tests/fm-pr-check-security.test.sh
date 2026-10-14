@@ -812,6 +812,82 @@ test_scout_status_pr_mention_does_not_register() {
   pass "scout PR mentions stay non-owning across promotion while exact delivery and re-arm succeed"
 }
 
+test_promoted_ship_uses_only_post_promotion_ready_evidence() {
+  local dir state url rc head
+  url=https://github.com/o/r/pull/96
+
+  dir=$(make_case promotion-ready-boundary)
+  state="$dir/home/state"
+  fm_write_meta "$state/task-a.meta" \
+    'window=firstmate:fm-task-a' \
+    'endpoint_task_id=task-a' \
+    "worktree=$dir/wt" \
+    'kind=scout'
+  mkdir -p "$dir/home/data/task-a"
+  printf '%s\n' \
+    '# Task' \
+    '## Captain'\''s intent' \
+    'Investigate the pull request.' \
+    '' \
+    '## Firstmate spec' \
+    'Report findings only.' > "$dir/home/data/task-a/brief.md"
+  printf 'done: PR %s checks green\n' "$url" > "$state/task-a.status"
+  FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$dir/home" \
+    FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$dir/home/data" \
+    "$ROOT/bin/fm-promote.sh" task-a --mode no-mistakes --yolo off >/dev/null \
+    || fail "could not promote the ready-boundary fixture"
+
+  set +e
+  run_check_entry_unprepared "$dir" task-a "$url" > "$dir/old.out" 2> "$dir/old.err"
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "scout-era ready evidence registered after promotion"
+  assert_poll_absent "$state" task-a
+
+  printf 'done: PR %s checks green\n' "$url" >> "$state/task-a.status"
+  head=$(git -C "$dir/wt" rev-parse HEAD)
+  FM_TEST_GH_HEAD="$head" run_check_entry_unprepared "$dir" task-a "$url" \
+    > "$dir/new.out" 2> "$dir/new.err" \
+    || fail "post-promotion ready evidence was rejected: $(cat "$dir/new.err")"
+  grep -qxF "pr=$url" "$state/task-a.meta" \
+    || fail "post-promotion ready evidence did not establish ownership"
+  fm_pr_poll_artifacts_valid "$state" task-a "$POLL" \
+    || fail "post-promotion ready evidence did not arm authenticated monitoring"
+
+  dir=$(make_case promotion-ready-rejected-url)
+  state="$dir/home/state"
+  fm_write_meta "$state/task-a.meta" \
+    'window=firstmate:fm-task-a' \
+    'endpoint_task_id=task-a' \
+    "worktree=$dir/wt" \
+    'kind=scout' \
+    'pr_ownership=rejected-scout-v1' \
+    "pr_rejected_url=$url"
+  mkdir -p "$dir/home/data/task-a"
+  printf '%s\n' \
+    '# Task' \
+    '## Captain'\''s intent' \
+    'Investigate the pull request.' \
+    '' \
+    '## Firstmate spec' \
+    'Report findings only.' > "$dir/home/data/task-a/brief.md"
+  printf 'done: PR %s checks green\n' "$url" > "$state/task-a.status"
+  FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$dir/home" \
+    FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$dir/home/data" \
+    "$ROOT/bin/fm-promote.sh" task-a --mode no-mistakes --yolo off >/dev/null \
+    || fail "could not promote the rejected-provenance fixture"
+  printf 'done: PR %s checks green\n' "$url" >> "$state/task-a.status"
+  head=$(git -C "$dir/wt" rev-parse HEAD)
+  FM_TEST_GH_HEAD="$head" run_check_entry_unprepared "$dir" task-a "$url" \
+    > "$dir/rejected-new.out" 2> "$dir/rejected-new.err" \
+    || fail "post-promotion same-URL evidence stayed rejected: $(cat "$dir/rejected-new.err")"
+  grep -qxF "pr=$url" "$state/task-a.meta" \
+    || fail "post-promotion same-URL evidence did not replace rejected provenance"
+  fm_pr_poll_artifacts_valid "$state" task-a "$POLL" \
+    || fail "post-promotion same-URL evidence did not arm authenticated monitoring"
+  pass "promotion separates scout-era and ship-era ready evidence"
+}
+
 test_supported_ready_status_variants_register() {
   local spec name mode rest line dir url rc
   url=https://github.com/o/r/pull/92
@@ -2886,8 +2962,9 @@ test_promoted_legacy_poll_ownership_is_reconciled_before_execution() {
     'kind=ship' \
     'mode=no-mistakes' \
     'backend=tmux' \
+    'pr_ready_after_line=1' \
     "pr=$url"
-  printf 'paused: awaiting review of %s\n' "$url" > "$state/task-a.status"
+  printf 'done: PR %s checks green\n' "$url" > "$state/task-a.status"
   seed_canonical_poll "$dir" task-a "$url"
   add_stop_custom_check "$dir"
   : > "$dir/gh.log"
@@ -4120,6 +4197,7 @@ test_invalid_entrypoints_have_zero_side_effects
 test_draft_pull_request_is_not_armed
 test_secondmate_record_refuses_a_pr_watch
 test_scout_status_pr_mention_does_not_register
+test_promoted_ship_uses_only_post_promotion_ready_evidence
 test_supported_ready_status_variants_register
 test_only_latest_ready_status_can_register
 test_unpushed_named_head_refuses_registration

@@ -437,7 +437,7 @@ test_secondmate_ledger_delivery_carries_report_and_failure() {
 # task's delivered PR: without a recorded PR, only a terminal line in the
 # ready-signal shape carries one, and a scout never carries one at all.
 test_pr_field_requires_recorded_pr_or_ready_signal_line() {
-  local id prose_key ready_key stamped_key placeholder_key unready_key scout_key
+  local id prose_key ready_key stamped_key placeholder_key unready_key scout_key cutoff_old_key cutoff_new_key
   make_world pr-provenance; bind_secondmate local
   write_child "$MATE" prose $'working: context in https://example.test/other/repo/pull/33\ndone: cleanup finished'
   write_child "$MATE" ready 'done: PR https://github.com/owner/repo/pull/44 checks green'
@@ -445,10 +445,21 @@ test_pr_field_requires_recorded_pr_or_ready_signal_line() {
   write_child "$MATE" placeholder 'done [at=<epoch>]: PR https://github.com/owner/repo/pull/77 checks green'
   write_child "$MATE" unready 'done: PR https://github.com/owner/repo/pull/88'
   write_child "$MATE" lookout 'done: PR https://github.com/owner/repo/pull/55'
-  for id in prose ready stamped placeholder unready; do
+  write_child "$MATE" cutoff-old 'done: PR https://github.com/owner/repo/pull/99 checks green'
+  write_child "$MATE" cutoff-new $'done: PR https://github.com/owner/repo/pull/100 checks green\ndone: PR https://github.com/owner/repo/pull/100 checks green'
+  for id in prose ready stamped placeholder unready cutoff-old cutoff-new; do
     awk '$0 !~ /^pr=/' "$MATE/state/$id.meta" > "$MATE/state/$id.meta.tmp"
     mv "$MATE/state/$id.meta.tmp" "$MATE/state/$id.meta"
   done
+  for id in cutoff-old cutoff-new; do
+    awk '$0 !~ /^pr_ownership=/' "$MATE/state/$id.meta" > "$MATE/state/$id.meta.tmp"
+    mv "$MATE/state/$id.meta.tmp" "$MATE/state/$id.meta"
+  done
+  printf 'pr_ready_after_line=1\n' >> "$MATE/state/cutoff-old.meta"
+  printf '%s\n' \
+    'pr_ownership=rejected-scout-v1' \
+    'pr_rejected_url=https://github.com/owner/repo/pull/100' \
+    'pr_ready_after_line=1' >> "$MATE/state/cutoff-new.meta"
   awk '{ sub(/^kind=ship$/, "kind=scout"); print }' "$MATE/state/lookout.meta" \
     > "$MATE/state/lookout.meta.tmp"
   mv "$MATE/state/lookout.meta.tmp" "$MATE/state/lookout.meta"
@@ -460,6 +471,8 @@ test_pr_field_requires_recorded_pr_or_ready_signal_line() {
     || fail "unsubstituted-stamp ready receipt key missing"
   unready_key=$(reported_outcome_key "$MATE" unready 'done') || fail "unready receipt key missing"
   scout_key=$(reported_outcome_key "$MATE" lookout 'done') || fail "scout receipt key missing"
+  cutoff_old_key=$(reported_outcome_key "$MATE" cutoff-old 'done') || fail "cutoff-old receipt key missing"
+  cutoff_new_key=$(reported_outcome_key "$MATE" cutoff-new 'done') || fail "cutoff-new receipt key missing"
   sed -E 's/ \[at=[0-9]+\]//' "$MAIN/state/mate.status" | grep -Fxq "done [key=$prose_key]: child prose done: cleanup finished mode=no-mistakes yolo=off" \
     || fail "a PR mentioned only in prose was claimed as the delivery: $(cat "$MAIN/state/mate.status")"
   sed -E 's/ \[at=[0-9]+\]//' "$MAIN/state/mate.status" | grep -Fxq "done [key=$ready_key]: child ready done: PR https://github.com/owner/repo/pull/44 checks green pr=https://github.com/owner/repo/pull/44 mode=no-mistakes yolo=off" \
@@ -472,6 +485,10 @@ test_pr_field_requires_recorded_pr_or_ready_signal_line() {
     || fail "a no-mistakes status without checks-green evidence claimed a PR: $(cat "$MAIN/state/mate.status")"
   sed -E 's/ \[at=[0-9]+\]//' "$MAIN/state/mate.status" | grep -Fxq "done [key=$scout_key]: child lookout done: PR https://github.com/owner/repo/pull/55 mode=no-mistakes yolo=off" \
     || fail "a scout's ready-looking line carried a PR claim: $(cat "$MAIN/state/mate.status")"
+  sed -E 's/ \[at=[0-9]+\]//' "$MAIN/state/mate.status" | grep -Fxq "done [key=$cutoff_old_key]: child cutoff-old done: PR https://github.com/owner/repo/pull/99 checks green mode=no-mistakes yolo=off" \
+    || fail "pre-promotion ready evidence crossed the inactive-report boundary: $(cat "$MAIN/state/mate.status")"
+  sed -E 's/ \[at=[0-9]+\]//' "$MAIN/state/mate.status" | grep -Fxq "done [key=$cutoff_new_key]: child cutoff-new done: PR https://github.com/owner/repo/pull/100 checks green pr=https://github.com/owner/repo/pull/100 mode=no-mistakes yolo=off" \
+    || fail "post-promotion same-URL evidence stayed rejected in inactive reporting: $(cat "$MAIN/state/mate.status")"
   pass "pr= fallback requires mode-correct ready evidence and never a scout"
 }
 

@@ -759,9 +759,14 @@ status_pr_url_from_done_note() {  # <note>
   printf '%s\n' "$url"
 }
 
-status_latest_ready_pr_url() {  # [<delivery-mode>]
-  local mode=${1:-} line verb note url provider latest=''
+status_latest_ready_pr_url() {  # [<delivery-mode>] [<first-eligible-line>]
+  local mode=${1:-} first=${2:-1} line verb note url provider latest='' number=0
+  case "$first" in
+    ''|*[!0-9]*|0*) return 1 ;;
+  esac
   while IFS= read -r line || [ -n "$line" ]; do
+    number=$((number + 1))
+    [ "$number" -ge "$first" ] || continue
     status_line_verb "$line" verb
     [ "$verb" = done ] || continue
     note=$(status_line_note "$line")

@@ -176,6 +176,7 @@ META=
 SCOUT_BRIEF=
 BRIEF_ORIGINAL=
 BRIEF_REPLACEMENT=
+READY_AFTER_LINE=
 promote_cleanup() {
   local status=$?
   [ -z "$TMP" ] || rm -f -- "$TMP" 2>/dev/null || true
@@ -389,14 +390,31 @@ if ! mv "$BRIEF_REPLACEMENT" "$SCOUT_BRIEF"; then
 fi
 BRIEF_REPLACEMENT=
 
+STATUS="$STATE/$ID.status"
+if [ -e "$STATUS" ] || [ -L "$STATUS" ]; then
+  [ -f "$STATUS" ] && [ ! -L "$STATUS" ] \
+    && [ "$(fm_pr_file_link_count "$STATUS")" = 1 ] || {
+      echo "error: task status is unsafe: $STATUS" >&2
+      exit 1
+    }
+  READY_AFTER_LINE=$(awk 'END { print NR + 0 }' "$STATUS") || {
+    echo "error: task status could not be read: $STATUS" >&2
+    exit 1
+  }
+else
+  READY_AFTER_LINE=0
+fi
+
 TMP="$STATE/.$ID.meta.promote.${BASHPID:-$$}"
-grep -v -e '^kind=' -e '^mode=' -e '^yolo=' -e '^branch=' -e '^upstream_consent=' "$META" > "$TMP"
+grep -v -e '^kind=' -e '^mode=' -e '^yolo=' -e '^branch=' \
+  -e '^upstream_consent=' -e '^pr_ready_after_line=' "$META" > "$TMP"
 {
   echo "kind=ship"
   echo "mode=$MODE"
   echo "yolo=$YOLO"
   echo "branch=$BRANCH"
   [ -z "$UPSTREAM_CONSENT" ] || echo "upstream_consent=$UPSTREAM_CONSENT"
+  echo "pr_ready_after_line=$READY_AFTER_LINE"
 } >> "$TMP"
 if ! fm_backlog_atomic_transition publish "$TMP" "$META" "task record" "$STATE"; then
   rm -f -- "$TMP"

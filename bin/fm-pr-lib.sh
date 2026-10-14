@@ -38,6 +38,8 @@ FM_PR_META_HOST=
 FM_PR_META_PATH=
 FM_PR_META_NUMBER=
 FM_PR_META_OWNERSHIP=
+FM_PR_READY_AFTER_LINE=
+FM_PR_READY_AFTER_PRESENT=0
 FM_PR_REG_ID=
 FM_PR_REG_PROVIDER=
 FM_PR_REG_URL=
@@ -394,6 +396,29 @@ fm_pr_regular_destination_on_device_or_absent() {
   [ ! -e "$path" ] || [ "$(fm_pr_file_device "$path")" = "$device" ]
 }
 
+fm_pr_ready_after_read() {  # <meta-file>
+  local file=$1 line value= count=0
+  FM_PR_READY_AFTER_LINE=
+  FM_PR_READY_AFTER_PRESENT=0
+  [ -f "$file" ] && [ ! -L "$file" ] || return 1
+  [ "$(fm_pr_file_link_count "$file")" = 1 ] || return 1
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      pr_ready_after_line=*)
+        count=$((count + 1))
+        value=${line#pr_ready_after_line=}
+        ;;
+    esac
+  done < "$file"
+  [ "$count" -le 1 ] || return 1
+  [ "$count" -eq 1 ] || return 0
+  case "$value" in
+    ''|*[!0-9]*|0[0-9]*) return 1 ;;
+  esac
+  FM_PR_READY_AFTER_LINE=$value
+  FM_PR_READY_AFTER_PRESENT=1
+}
+
 fm_pr_metadata_identity_parse_any() {
   local file=$1 line value pr_count=0 ownership_count=0 seen_pr=0 post_pr_invalid=0
   FM_PR_META_PROVIDER=
@@ -404,6 +429,7 @@ fm_pr_metadata_identity_parse_any() {
   FM_PR_META_OWNERSHIP=
   [ -f "$file" ] && [ ! -L "$file" ] || return 1
   [ "$(fm_pr_file_link_count "$file")" = 1 ] || return 1
+  fm_pr_ready_after_read "$file" || return 1
   while IFS= read -r line || [ -n "$line" ]; do
     case "$line" in
       pr=*)
@@ -435,6 +461,8 @@ fm_pr_metadata_identity_parse_any() {
             ;;
           *) post_pr_invalid=1 ;;
         esac
+        ;;
+      pr_ready_after_line=*)
         ;;
       x_request=*|x_request_ts=*|x_followups=*|x_platform=*|x_reply_max_chars=*)
         ;;

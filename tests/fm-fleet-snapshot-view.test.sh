@@ -257,7 +257,7 @@ test_fixture_snapshot_json() {
 }
 
 test_scout_pr_mention_is_not_an_artifact() {
-  local home fakebin old_url url gerrit_url out view scout_row ship_row
+  local home fakebin old_url url gerrit_url out input view scout_row ship_row
   home=$(make_home scout-pr-mention)
   fakebin=$(make_fakebin "$home")
   old_url=https://github.com/o/r/pull/90
@@ -266,7 +266,8 @@ test_scout_pr_mention_is_not_an_artifact() {
   mkdir -p "$home/data/scout-mentioned" "$home/projects/scout" "$home/projects/stale" \
     "$home/projects/ship" "$home/projects/unready" "$home/projects/direct" \
     "$home/projects/gerrit-ready" "$home/projects/gerrit-wrong" \
-    "$home/projects/invalid-host" "$home/projects/insecure-github"
+    "$home/projects/invalid-host" "$home/projects/insecure-github" \
+    "$home/projects/cutoff-old" "$home/projects/cutoff-new"
   printf '# Scout report\n' > "$home/data/scout-mentioned/report.md"
   fm_write_meta "$home/state/scout-mentioned.meta" \
     'window=firstmate:fm-scout-mentioned' \
@@ -343,6 +344,27 @@ test_scout_pr_mention_is_not_an_artifact() {
     'kind=ship' \
     'mode=no-mistakes'
   printf 'done: PR http://github.com/o/r/pull/8 checks green\n' > "$home/state/insecure-github.status"
+  fm_write_meta "$home/state/cutoff-old.meta" \
+    'window=firstmate:fm-cutoff-old' \
+    "worktree=$home/projects/cutoff-old" \
+    'project=alpha' \
+    'harness=codex' \
+    'kind=ship' \
+    'mode=no-mistakes' \
+    'pr_ready_after_line=1'
+  printf 'done: PR %s checks green\n' "$url" > "$home/state/cutoff-old.status"
+  fm_write_meta "$home/state/cutoff-new.meta" \
+    'window=firstmate:fm-cutoff-new' \
+    "worktree=$home/projects/cutoff-new" \
+    'project=alpha' \
+    'harness=codex' \
+    'kind=ship' \
+    'mode=no-mistakes' \
+    'pr_ownership=rejected-scout-v1' \
+    "pr_rejected_url=$url" \
+    'pr_ready_after_line=1'
+  printf 'done: PR %s checks green\ndone: PR %s checks green\n' "$url" "$url" \
+    > "$home/state/cutoff-new.status"
 
   out=$(PATH="$fakebin:$PATH" FM_HOME="$home" "$SNAPSHOT" --json)
   printf '%s' "$out" | jq -e --arg old_url "$old_url" --arg url "$url" --arg gerrit_url "$gerrit_url" '
@@ -373,8 +395,21 @@ test_scout_pr_mention_is_not_an_artifact() {
       and
     (.tasks[] | select(.id == "insecure-github")
       | .pr == {url:null,source:"absent",head:null})
+      and
+    (.tasks[] | select(.id == "cutoff-old")
+      | .pr == {url:null,source:"absent",head:null})
+      and
+    (.tasks[] | select(.id == "cutoff-new")
+      | .pr.url == $url and .pr.source == "status_event")
   ' >/dev/null \
     || fail "snapshot attributed a PR without delivery-mode/provider evidence: $out"
+
+  input=$(PATH="$fakebin:$PATH" FM_HOME="$home" "$SNAPSHOT" --contribution-input)
+  printf '%s' "$input" | jq -e --arg url "$url" '
+    (.tasks[] | select(.id == "cutoff-old") | .pr == {url:"",head:""})
+      and
+    (.tasks[] | select(.id == "cutoff-new") | .pr == {url:$url,head:""})
+  ' >/dev/null || fail "contribution input ignored the promotion-ready boundary: $input"
 
   view=$(PATH="$fakebin:$PATH" FM_HOME="$home" "$VIEW")
   scout_row=$(printf '%s\n' "$view" | grep '^| scout-mentioned |')

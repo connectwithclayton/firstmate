@@ -327,8 +327,8 @@ meta_incarnation() { # <meta>
 # tag this scrape steps over without reading, so a PR a worker merely mentioned
 # in prose is never claimed as the delivery.
 # A scout never delivers a PR, so it never carries one.
-pr_for_task() { # <meta> [preferred-line]
-  local meta=$1 preferred=${2:-} value mode
+pr_for_task() { # <meta> [preferred-line] [status-file]
+  local meta=$1 preferred=${2:-} status=${3:-} value mode preferred_url ready_after ready_url
   [ "$(meta_field "$meta" kind)" != scout ] || return 0
   value=
   if fm_pr_metadata_identity_parse "$meta"; then
@@ -336,8 +336,20 @@ pr_for_task() { # <meta> [preferred-line]
   fi
   if [ -z "$value" ] && [ -n "$preferred" ]; then
     mode=$(meta_field "$meta" mode)
-    value=$(printf '%s\n' "$preferred" | status_latest_ready_pr_url "$mode" || true)
-    [ "$value" != "$(meta_field "$meta" pr_rejected_url)" ] || value=
+    preferred_url=$(printf '%s\n' "$preferred" | status_latest_ready_pr_url "$mode" || true)
+    if fm_pr_ready_after_read "$meta"; then
+      ready_after=${FM_PR_READY_AFTER_LINE:-0}
+      if [ "$FM_PR_READY_AFTER_PRESENT" -eq 1 ]; then
+        ready_url=
+        if [ -f "$status" ] && [ ! -L "$status" ] \
+          && [ "$(fm_pr_file_link_count "$status")" = 1 ]; then
+          ready_url=$(status_latest_ready_pr_url "$mode" "$((ready_after + 1))" < "$status" || true)
+        fi
+        [ -n "$preferred_url" ] && [ "$preferred_url" = "$ready_url" ] && value=$preferred_url
+      elif [ "$preferred_url" != "$(meta_field "$meta" pr_rejected_url)" ]; then
+        value=$preferred_url
+      fi
+    fi
   fi
   clean_field "$value"
 }
@@ -419,7 +431,7 @@ report_child_ledger_locked() { # <id> <meta>
   status="$STATE/$id.status"
   last=$(child_terminal_ledger_line "$status") || return 0
   state=$(status_line_verb "$last")
-  pr=$(pr_for_task "$meta" "$last")
+  pr=$(pr_for_task "$meta" "$last" "$status")
   incarnation=$(meta_incarnation "$meta")
   fingerprint=$(sha256_text "$incarnation|$id|$state|ledger|$last")
   if [ "$state" = "done" ] && [ ! -f "$(record_path "$fingerprint" reported)" ] \
