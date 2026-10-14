@@ -42,20 +42,27 @@ def valid_record:
         and (.mergeable | IN("mergeable","conflicting","unknown")) and (.can_merge | type == "boolean")
         and (.review_decision | IN("","APPROVED","CHANGES_REQUESTED","REVIEW_REQUIRED"))
         else (.ready | type == "boolean") end))))) catch false;
+def live_scout_identity($input; $task):
+  any(($input.tasks // [])[]; .id == $task and .kind == "scout");
 def pr_ownership($input; $task; $url):
-  ([($input.tasks // [])[]
+  if live_scout_identity($input; $task) then null
+  else ([($input.tasks // [])[]
       | select(.id == $task and .kind == "ship" and .pr.url == $url)
       | {state:"owned",kind:"ship",source:"task-pr"}]
    + [($input.backlog.records // [])[]
       | select(.structured == true and .id == $task and .kind == "ship")
       | select(any((.links // [])[]; . == $url))
       | {state:"owned",kind:"ship",source:"backlog-link"}])
-  | first;
+    | first
+  end;
 def scout_identity($input; $task):
-  any(($input.tasks // [])[]; .id == $task and .kind == "scout")
-  or any(($input.backlog.records // [])[]; .structured == true and .id == $task and .kind == "scout");
+  live_scout_identity($input; $task)
+  or ((any(($input.tasks // [])[]; .id == $task) | not)
+    and any(($input.backlog.records // [])[]; .structured == true and .id == $task and .kind == "scout"));
 def migrate_record($input; $task):
   if .kind != "pr" then .
+  elif live_scout_identity($input; $task) then
+    .ownership = {state:"rejected",kind:"scout",source:"legacy-scout"}
   else pr_ownership($input; $task; .url) as $ownership
     | if $ownership != null then .ownership = $ownership
       elif .ownership.state == "owned" and (.ownership | valid_ownership) then .
@@ -75,6 +82,7 @@ def known($input; $saved):
    + [($input.backlog.records // [])[] | select(.structured == true) as $task
       | ($task.links // [])[] | select(canonical_url) as $url
       | select(($url | pull_request_url | not) or $task.kind == "ship")
+      | select(live_scout_identity($input; $task.id) | not)
       | {task:$task.id,url:$url}
         + (if ($url | pull_request_url) then
              {ownership:{state:"owned",kind:"ship",source:"backlog-link"}}
@@ -82,6 +90,7 @@ def known($input; $saved):
    + [$saved[] | .task as $task
       | .records[]
       | select(.kind != "pr" or .ownership.state == "owned")
+      | select(.kind != "pr" or (live_scout_identity($input; $task) | not))
       | {task:$task,url} + (if .kind == "pr" then {ownership} else {} end)])
   | unique_by([.task,.url])
   # A retired record ends that task's ownership even while a backlog link remains.

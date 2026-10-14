@@ -3086,6 +3086,10 @@ test_scout_metadata_cleanup_retires_partial_poll() {
     seed_canonical_poll "$dir" scout https://github.com/o/r/pull/93
     rm -f "$state/scout.check.sh"
     [ "$shape" = data-and-registration ] || rm -f "$state/scout.pr-poll-registration"
+    printf '#!/bin/sh\nexit 0\n' > "$state/scout.check.sh"
+    chmod 0700 "$state/scout.check.sh"
+    FM_HOME="$dir/home" "$REGISTER" scout >/dev/null \
+      || fail "could not register the partial-poll scout custom check for $shape"
     add_stop_custom_check "$dir"
 
     set +e
@@ -3094,9 +3098,14 @@ test_scout_metadata_cleanup_retires_partial_poll() {
     rc=$?
     set -e
     [ "$rc" -eq 0 ] || fail "partial scout poll cleanup failed for $shape: $(cat "$dir/watch.err")"
-    assert_poll_absent "$state" scout
+    for suffix in pr-poll pr-poll-registration pr-poll-retirement; do
+      [ ! -e "$state/scout.$suffix" ] && [ ! -L "$state/scout.$suffix" ] \
+        || fail "partial scout poll cleanup retained scout.$suffix for $shape"
+    done
     ! grep -qE '^(pr|pr_head)=' "$state/scout.meta" \
       || fail "partial scout poll cleanup retained identity for $shape"
+    [ -f "$state/scout.check.sh" ] && [ -f "$state/scout.check-trust" ] \
+      || fail "partial scout poll cleanup removed the registered custom check for $shape"
     [ ! -s "$dir/gh.log" ] || fail "partial scout poll cleanup queried the forge for $shape"
     case "$(cat "$dir/watch.out")" in
       check:*z-stop.check.sh:*stop-cycle) ;;
@@ -3134,6 +3143,26 @@ test_retirement_crash_recovery() {
   drain_count=$(grep -cF "$(printf '\tcheck\tmerged-task-a-https://github.com/o/r/pull/3\t')" \
     "$dir/drain.out" || true)
   [ "$drain_count" -eq 1 ] || fail "same-key crash retry rows did not deduplicate at drain"
+
+  dir=$(make_case quarantine-after-receipt)
+  state="$dir/home/state"
+  write_poll_meta "$state" task-a https://github.com/o/r/pull/42
+  perl -pi -e 's/^pr_ownership=.*/pr_ownership=quarantined-legacy-v1/' "$state/task-a.meta"
+  seed_canonical_poll "$dir" task-a https://github.com/o/r/pull/42
+  fm_pr_poll_snapshot_capture "$state" task-a "$POLL" \
+    || fail "could not snapshot quarantine receipt fixture"
+  fm_pr_poll_retirement_publish "$state" task-a "$POLL" quarantined \
+    || fail "could not publish quarantine crash receipt"
+  add_stop_custom_check "$dir"
+  set +e
+  run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/quarantine-restart.out" 2> "$dir/quarantine-restart.err"
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || fail "quarantine receipt recovery failed: $(cat "$dir/quarantine-restart.err")"
+  assert_poll_absent "$state" task-a
+  grep -qF 'quarantined legacy PR ownership for task-a (https://github.com/o/r/pull/42)' \
+    "$state/.wake-queue" \
+    || fail "quarantine receipt recovery removed the receipt before queuing reconciliation"
 
   dir=$(make_case retirement-after-receipt)
   state="$dir/home/state"

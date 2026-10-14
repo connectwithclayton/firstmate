@@ -9,6 +9,7 @@
 #   fm-contributions.sh ack <task> <url> <event-token>
 #   fm-contributions.sh retire <task> <url> captain <reason>
 #   fm-contributions.sh migrate-ownership <task>
+#   fm-contributions.sh ownership <task> <url>
 #   fm-contributions.sh arm [--if-owned]
 #
 # snapshot is read-only and never contacts a forge. Its input is the canonical
@@ -118,8 +119,13 @@ export FM_HOME FM_STATE_OVERRIDE="$STATE"
 fail() { printf 'fm-contributions: %s\n' "$*" >&2; exit 1; }
 usage() { sed -n '2,/^set -eu$/s/^# \{0,1\}//p' "$0"; }
 case "${1:-}" in -h|--help) usage; exit 0 ;; esac
-if [ "${1:-}" = migrate-ownership ]; then
-  [ "$#" -eq 2 ] || fail 'migrate-ownership needs one task'
+if [ "${1:-}" = migrate-ownership ] || [ "${1:-}" = ownership ]; then
+  if [ "$1" = migrate-ownership ]; then
+    [ "$#" -eq 2 ] || fail 'migrate-ownership needs one task'
+  else
+    [ "$#" -eq 3 ] || fail 'ownership needs one task and URL'
+    fm_pr_url_parse "$3" || fail 'invalid contribution URL'
+  fi
   fm_pr_task_id_valid "$2" || fail 'invalid contribution task'
   migration_dir="$DATA/$2"
   migration_file="$migration_dir/contributions.json"
@@ -287,6 +293,20 @@ migrate_task_ownership() {
     fail 'invalid stored contribution record'
   fi
   migrate_saved "$task"
+}
+
+ownership_status() {
+  local task=$1 url=$2
+  get_input
+  read_saved
+  [ "$ERRORS" -eq 0 ] || fail "$ERRORS unreadable contribution record(s); ownership is unverified"
+  jq_lib -nr --slurpfile input "$TMP/input.json" --slurpfile saved "$TMP/saved.json" \
+    --arg task "$task" --arg url "$url" '
+    ($saved[0] | map(migrate_document($input[0]))) as $classified
+    | if any(known($input[0];$classified)[]; .task == $task and .url == $url) then "owned"
+      elif any($classified[] | select(.task == $task) | .records[];
+        .kind == "pr" and .url == $url and .ownership.state == "rejected") then "rejected"
+      else "" end'
 }
 
 forge() {
@@ -582,6 +602,9 @@ case "${1:-}" in
     ;;
   migrate-ownership)
     migrate_task_ownership "$2"
+    ;;
+  ownership)
+    ownership_status "$2" "$3"
     ;;
   verdict|ack)
     action=$1; shift

@@ -2644,12 +2644,18 @@ clear_orphaned_scout_pr_identities() {
         && fm_pr_metadata_identity_parse_any "$meta"; then
         url=$FM_PR_META_URL
         partial_failed=0
-        for path in "$STATE/$id.check.sh" "$STATE/$id.pr-poll-registration" "$STATE/$id.pr-poll"; do
+        for path in "$STATE/$id.pr-poll-registration" "$STATE/$id.pr-poll"; do
           if [ -e "$path" ] || [ -L "$path" ]; then
             rm -f -- "$path" || partial_failed=1
           fi
           [ ! -e "$path" ] && [ ! -L "$path" ] || partial_failed=1
         done
+        path="$STATE/$id.check.sh"
+        if { [ -e "$path" ] || [ -L "$path" ]; } \
+          && ! fm_custom_check_registered "$STATE" "$id"; then
+          rm -f -- "$path" || partial_failed=1
+          [ ! -e "$path" ] && [ ! -L "$path" ] || partial_failed=1
+        fi
         if [ "$partial_failed" -eq 0 ]; then
           fm_pr_rejected_metadata_identity_clear "$STATE" "$id" "$url" || failed=1
         else
@@ -2668,6 +2674,24 @@ clear_orphaned_scout_pr_identities() {
 # A merged poll may have queued its terminal wake and then lost the process
 # between receipt publication and fixed-path removal.
 # Finish only identity-bound retirement receipts before any check can run.
+queue_quarantined_pr_retirement_wakes() {
+  local receipt id reason failed=0
+  for receipt in "$STATE"/*.pr-poll-retirement; do
+    [ -e "$receipt" ] || [ -L "$receipt" ] || continue
+    id=$(basename "$receipt" .pr-poll-retirement)
+    fm_pr_task_id_valid "$id" || continue
+    fm_pr_poll_retirement_receipt_valid "$STATE" "$id" || continue
+    [ "$FM_PR_RETIRE_RESULT" = quarantined ] || continue
+    reason="check: quarantined legacy PR ownership for $id ($FM_PR_RETIRE_URL); append the current mode-valid PR-ready status and run fm-pr-check.sh to reconcile"
+    fm_wake_append check "pr-ownership-$id" "$reason" || failed=1
+  done
+  return "$failed"
+}
+
+if ! queue_quarantined_pr_retirement_wakes; then
+  echo "watcher: quarantine reconciliation wake could not be persisted; retaining retirement receipts" >&2
+  exit 1
+fi
 if ! fm_pr_poll_retirement_recover_all "$STATE" "$SCRIPT_DIR/fm-pr-poll.sh"; then
   reason="check: rejected unauthenticated PR poll retirement receipts:$FM_PR_POLL_RETIREMENT_REJECTED"
   fm_wake_append check pr-poll-retirement "$reason" || exit 1
@@ -2696,8 +2720,23 @@ retire_pr_poll() {  # <id> <result>
   return 1
 }
 
+quarantine_pr_poll() {  # <id> <url>
+  local id=$1 url=$2 reason
+  if fm_pr_poll_retirement_publish "$STATE" "$id" "$SCRIPT_DIR/fm-pr-poll.sh" quarantined; then
+    reason="check: quarantined legacy PR ownership for $id ($url); append the current mode-valid PR-ready status and run fm-pr-check.sh to reconcile"
+    fm_wake_append check "pr-ownership-$id" "$reason" || return 1
+    if fm_pr_poll_retirement_recover_one "$STATE" "$id" "$SCRIPT_DIR/fm-pr-poll.sh"; then
+      return 0
+    fi
+    triage_log "PR poll retirement remains recoverable for $id"
+  else
+    triage_log "PR poll retirement deferred because its canonical snapshot changed for $id"
+  fi
+  return 1
+}
+
 reconcile_pr_poll_ownership() {  # <id> <provider> <url> <host> <path> <number>
-  local id=$1 provider=$2 url=$3 host=$4 path=$5 number=$6 meta status mode ready contributions contribution_ownership
+  local id=$1 provider=$2 url=$3 host=$4 path=$5 number=$6 meta status mode ready contribution_ownership
   meta="$STATE/$id.meta"
   if fm_pr_metadata_identity_parse "$meta" \
     && [ "$FM_PR_META_PROVIDER" = "$provider" ] \
@@ -2717,18 +2756,9 @@ reconcile_pr_poll_ownership() {  # <id> <provider> <url> <host> <path> <number>
     fm_pr_metadata_ownership_set "$STATE" "$id" "$url" proven-merge-authorized-v1 || return 1
     return 0
   fi
-  contributions="$FM_HOME/data/$id/contributions.json"
   contribution_ownership=
-  if command -v jq >/dev/null 2>&1 && [ -f "$contributions" ] && [ ! -L "$contributions" ]; then
-    contribution_ownership=$(jq -r --arg url "$url" '
-      if .schema != "fm-contributions.v2" then ""
-      else first(.records[]? | select(.kind == "pr" and .url == $url)
-        | if .ownership == {state:"owned",kind:"ship",source:"task-pr"}
-            or .ownership == {state:"owned",kind:"ship",source:"backlog-link"} then "owned"
-          elif .ownership == {state:"rejected",kind:"scout",source:"legacy-scout"} then "rejected"
-          else "" end) // "" end
-    ' "$contributions" 2>/dev/null) || contribution_ownership=
-  fi
+  contribution_ownership=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
+    "$SCRIPT_DIR/fm-contributions.sh" ownership "$id" "$url" 2>/dev/null) || return 1
   if [ "$contribution_ownership" = owned ]; then
     fm_pr_metadata_ownership_set "$STATE" "$id" "$url" proven-contribution-v1 || return 1
     return 0
@@ -2965,14 +2995,13 @@ while :; do
               continue
               ;;
             3)
-              if ! retire_pr_poll "$id" quarantined; then
+              if ! quarantine_pr_poll "$id" "$url"; then
                 pr_poll_control_release || exit 1
                 triage_log "unclassified legacy PR ownership for $id could not be quarantined"
                 continue
               fi
               pr_poll_control_release || exit 1
               reason="check: quarantined legacy PR ownership for $id ($url); append the current mode-valid PR-ready status and run fm-pr-check.sh to reconcile"
-              fm_wake_append check "pr-ownership-$id" "$reason" || exit 1
               touch "$STATE/.last-check"
               wake "$reason"
               continue

@@ -58,6 +58,8 @@ CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 . "$SCRIPT_DIR/fm-role-lib.sh"
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
+# shellcheck source=bin/fm-check-lib.sh
+. "$SCRIPT_DIR/fm-check-lib.sh"
 # shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"
 # shellcheck source=bin/fm-tasks-axi-lib.sh
@@ -212,7 +214,12 @@ SCOUT_PR_RESIDUE=
 if grep -qE '^(pr|pr_head)=' "$META"; then
   SCOUT_PR_RESIDUE=$META
 else
-  for residue in "$STATE/$ID.check.sh" "$STATE/$ID.pr-poll" \
+  residue="$STATE/$ID.check.sh"
+  if { [ -e "$residue" ] || [ -L "$residue" ]; } \
+    && ! fm_custom_check_registered "$STATE" "$ID"; then
+    SCOUT_PR_RESIDUE=$residue
+  fi
+  for residue in "$STATE/$ID.pr-poll" \
     "$STATE/$ID.pr-poll-registration" "$STATE/$ID.pr-poll-retirement"; do
     if [ -e "$residue" ] || [ -L "$residue" ]; then
       SCOUT_PR_RESIDUE=$residue

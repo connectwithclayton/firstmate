@@ -175,6 +175,10 @@ printf 'forge-called\n' >> "$FM_HOME/forge-calls"
 exit 1
 SH
   chmod +x "$home/fakebin/gh"
+  printf '#!/bin/sh\nexit 0\n' > "$home/state/scout.check.sh"
+  chmod 700 "$home/state/scout.check.sh"
+  with_home "$home" "$ROOT/bin/fm-check-register.sh" scout >/dev/null \
+    || fail 'could not register the scout custom check'
 
   pending=$(with_home "$home" "$ROOT/bin/fm-contributions.sh" pending) \
     || fail 'could not read scout pending contributions'
@@ -183,6 +187,8 @@ SH
   with_home "$home" env FM_ROOT_OVERRIDE="$ROOT" "$ROOT/bin/fm-promote.sh" \
     scout --mode direct-PR --yolo off >/dev/null \
     || fail 'could not promote the cleaned scout fixture'
+  [ -f "$home/state/scout.check.sh" ] && [ -f "$home/state/scout.check-trust" ] \
+    || fail 'promotion treated the registered custom check as PR residue'
   jq -e '.schema == "fm-contributions.v2" and (.records | length) == 1
     and .records[0].ownership == {state:"rejected",kind:"scout",source:"legacy-scout"}
     and (.records[0].pending | length) == 1' "$home/data/scout/contributions.json" >/dev/null \
@@ -208,6 +214,28 @@ SH
   [ -z "$poll_out" ] || fail "promoted scout residue emitted a wake: $poll_out"
   [ ! -e "$home/forge-calls" ] || fail 'promoted scout residue reached the forge'
   pass 'scout PR pending state becomes durable non-ownership before promotion'
+}
+
+test_live_scout_outranks_stale_ship_contribution_evidence() {
+  local home ownership
+  home=$(new_home live-scout-stale-ship)
+  record "$home" scout 17 open mergeable
+  fm_write_meta "$home/state/scout.meta" \
+    "worktree=$home/wt" \
+    'kind=scout'
+
+  with_home "$home" "$ROOT/bin/fm-contributions.sh" migrate-ownership scout \
+    || fail 'could not migrate the live scout contribution record'
+  jq -e '.schema == "fm-contributions.v2"
+    and .records[0].ownership == {state:"rejected",kind:"scout",source:"legacy-scout"}' \
+    "$home/data/scout/contributions.json" >/dev/null \
+    || fail 'stale ship backlog evidence overrode the live scout role'
+  ownership=$(with_home "$home" "$ROOT/bin/fm-contributions.sh" ownership \
+    scout https://github.com/o/r/pull/17) \
+    || fail 'could not classify the live scout contribution record'
+  [ "$ownership" = rejected ] \
+    || fail "live scout contribution classification was not rejected: $ownership"
+  pass 'live scout role outranks stale ship contribution evidence'
 }
 
 test_identity_gone_legacy_pr_is_retained_for_reconciliation() {
@@ -947,6 +975,10 @@ test_record_task_identity_matches_dirname_basename() {
   if with_home "$home" "$ROOT/bin/fm-contributions.sh" pending > /dev/null 2>&1; then
     fail 'a record naming another task was accepted'
   fi
+  if with_home "$home" "$ROOT/bin/fm-contributions.sh" ownership \
+    named https://github.com/o/r/pull/1 > /dev/null 2>&1; then
+    fail 'ownership reconciliation accepted a record naming another task'
+  fi
   pass 'record task identity is the directory dirname/basename named'
 }
 
@@ -1533,7 +1565,7 @@ test_retire_is_idempotent_and_refuses_unknown_pairs() {
 }
 
 failures=0
-for test_name in test_actor_coverage test_stale_verdict test_unchecked_is_not_silence test_absent_ownership_migration_needs_no_jq test_scout_pr_state_is_not_contribution_ownership test_scout_pr_state_cannot_reactivate_after_promotion test_identity_gone_legacy_pr_is_retained_for_reconciliation test_legacy_ship_pr_ownership_survives_identity_removal test_current_ship_ownership_outranks_stale_scout_backlog test_newest_check_has_no_verdict test_comment_wake test_review_wake test_inline_wake test_ready_issue_wake test_fresh_issue_requires_maintainer test_missing_lane_remains_missing test_partial_freshness_keeps_measured_rows test_malformed_record_cannot_prove_silence test_issue_timeline_and_exact_ack test_verdict_retains_judged_head test_verdict_actor_values_are_discoverable test_observed_replacement_refreshes_verdict test_unobserved_head_leaves_verdict_unknown test_away_yolo_is_fleet_work test_away_yolo_cross_home_is_fleet_work test_retired_and_unsupported_coverage test_unsupported_forge_is_not_fleet_work test_held_unsupported_forge_is_not_captain_work test_unsupported_poll_is_silent_and_clears_legacy_errors test_legacy_cleanup_preserves_supported_failure test_shared_contribution_signal_wakes_once test_watcher_keeps_diagnostics_separate_from_contribution_wakes test_expired_child_unsupported_forge_stays_unmeasured test_watcher_surfaces_new_contribution_once test_home_summary_coverage test_unreadable_pending_is_not_empty test_record_task_identity_matches_dirname_basename test_read_only_views_create_no_state test_budget_refusal_between_calls test_budget_bounded_call_timeout test_genuine_failure_near_deadline_is_unavailable test_shared_url_observed_once test_terminal_contribution_settles test_late_owner_inherits_terminal_observation test_interrupted_multi_owner_poll_settles_every_owner test_done_task_open_pr_still_observed test_reservation_defers_later_url_when_fifteen_seconds_do_not_remain test_three_second_pr_reads_complete_fresh_in_one_cycle test_slow_read_deadline_kill_is_budget_refusal test_unmeasured_url_does_not_starve_the_tail test_budget_is_cut_down_to_the_watcher_check_bound test_arm_plumbs_a_configured_budget_into_the_check_shim test_unavailable_forge_records_error_and_wakes_once_per_episode test_late_owner_keeps_failure_episode_suppressed test_retire_ends_observation_of_a_gone_contribution test_late_owner_of_a_retired_final_contribution_is_not_retired test_retire_is_idempotent_and_refuses_unknown_pairs; do
+for test_name in test_actor_coverage test_stale_verdict test_unchecked_is_not_silence test_absent_ownership_migration_needs_no_jq test_scout_pr_state_is_not_contribution_ownership test_scout_pr_state_cannot_reactivate_after_promotion test_live_scout_outranks_stale_ship_contribution_evidence test_identity_gone_legacy_pr_is_retained_for_reconciliation test_legacy_ship_pr_ownership_survives_identity_removal test_current_ship_ownership_outranks_stale_scout_backlog test_newest_check_has_no_verdict test_comment_wake test_review_wake test_inline_wake test_ready_issue_wake test_fresh_issue_requires_maintainer test_missing_lane_remains_missing test_partial_freshness_keeps_measured_rows test_malformed_record_cannot_prove_silence test_issue_timeline_and_exact_ack test_verdict_retains_judged_head test_verdict_actor_values_are_discoverable test_observed_replacement_refreshes_verdict test_unobserved_head_leaves_verdict_unknown test_away_yolo_is_fleet_work test_away_yolo_cross_home_is_fleet_work test_retired_and_unsupported_coverage test_unsupported_forge_is_not_fleet_work test_held_unsupported_forge_is_not_captain_work test_unsupported_poll_is_silent_and_clears_legacy_errors test_legacy_cleanup_preserves_supported_failure test_shared_contribution_signal_wakes_once test_watcher_keeps_diagnostics_separate_from_contribution_wakes test_expired_child_unsupported_forge_stays_unmeasured test_watcher_surfaces_new_contribution_once test_home_summary_coverage test_unreadable_pending_is_not_empty test_record_task_identity_matches_dirname_basename test_read_only_views_create_no_state test_budget_refusal_between_calls test_budget_bounded_call_timeout test_genuine_failure_near_deadline_is_unavailable test_shared_url_observed_once test_terminal_contribution_settles test_late_owner_inherits_terminal_observation test_interrupted_multi_owner_poll_settles_every_owner test_done_task_open_pr_still_observed test_reservation_defers_later_url_when_fifteen_seconds_do_not_remain test_three_second_pr_reads_complete_fresh_in_one_cycle test_slow_read_deadline_kill_is_budget_refusal test_unmeasured_url_does_not_starve_the_tail test_budget_is_cut_down_to_the_watcher_check_bound test_arm_plumbs_a_configured_budget_into_the_check_shim test_unavailable_forge_records_error_and_wakes_once_per_episode test_late_owner_keeps_failure_episode_suppressed test_retire_ends_observation_of_a_gone_contribution test_late_owner_of_a_retired_final_contribution_is_not_retired test_retire_is_idempotent_and_refuses_unknown_pairs; do
   ( "$test_name" ) || failures=$((failures + 1))
 done
 [ "$failures" -eq 0 ] || fail "$failures contribution regressions"
