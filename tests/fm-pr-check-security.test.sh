@@ -3339,6 +3339,44 @@ test_retirement_crash_recovery() {
   pass "queue, receipt, and every fixed-path removal crash point recover without loss or repeated execution"
 }
 
+test_quarantined_registration_preserves_recovery() {
+  local dir state url rc
+  dir=$(make_case quarantined-registration-preserves-recovery)
+  state="$dir/home/state"
+  url=https://gitlab.example/o/r/-/merge_requests/42
+  write_poll_meta "$state" task-a "$url" kind=ship mode=direct-PR
+  perl -pi -e 's/^pr_ownership=.*/pr_ownership=quarantined-legacy-v1/' "$state/task-a.meta"
+  seed_canonical_poll "$dir" task-a "$url"
+  fm_pr_poll_snapshot_capture "$state" task-a "$POLL" \
+    || fail "could not snapshot quarantined registration fixture"
+  fm_pr_poll_retirement_publish "$state" task-a "$POLL" quarantined \
+    || fail "could not publish quarantined registration fixture"
+  write_ready_status "$dir" task-a "$url"
+
+  set +e
+  FM_ROOT_OVERRIDE="$dir/root" FM_HOME="$dir/home" FM_TEST_GUARD_LOG="$dir/guard.log" \
+    PATH="$BASE_PATH" "$PR_CHECK" task-a "$url" > "$dir/missing-cli.out" 2> "$dir/missing-cli.err"
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "quarantined registration succeeded without the required forge CLI"
+  grep -qF 'requires glab on PATH' "$dir/missing-cli.err" \
+    || fail "quarantined registration did not reach the missing-CLI validation"
+  fm_pr_poll_retirement_state_valid "$state" task-a \
+    || fail "failed registration consumed its quarantined retirement receipt"
+  fm_pr_poll_artifacts_valid "$state" task-a "$POLL" \
+    || fail "failed registration removed its recoverable quarantined poll"
+
+  run_check_entry_unprepared "$dir" task-a "$url" > "$dir/reconcile.out" 2> "$dir/reconcile.err" \
+    || fail "validated registration did not reconcile quarantine: $(cat "$dir/reconcile.err")"
+  [ ! -e "$state/task-a.pr-poll-retirement" ] && [ ! -L "$state/task-a.pr-poll-retirement" ] \
+    || fail "successful registration retained its obsolete quarantine receipt"
+  grep -qx 'pr_ownership=proven-ready-status-v1' "$state/task-a.meta" \
+    || fail "successful quarantine reconciliation did not prove ownership"
+  fm_pr_poll_artifacts_valid "$state" task-a "$POLL" \
+    || fail "successful quarantine reconciliation did not publish authenticated monitoring"
+  pass "quarantined registration preserves recovery until replacement publication"
+}
+
 test_external_merge_transition_retires_only_terminal_poll() {
   local dir state before rc label
   dir=$(make_case external-merge-transition)
@@ -4189,6 +4227,7 @@ test_scout_metadata_cleanup_recovers_without_poll_artifacts
 test_scout_cleanup_skips_unrelated_control_locks
 test_scout_metadata_cleanup_retires_partial_poll
 test_retirement_crash_recovery
+test_quarantined_registration_preserves_recovery
 test_external_merge_transition_retires_only_terminal_poll
 test_retirement_refuses_replacement_and_nonterminal_results
 test_retirement_queue_failure_and_receipt_tampering

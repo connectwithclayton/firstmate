@@ -111,13 +111,24 @@ elif [ "$REGISTERED_URL" != "$URL" ] || [ -z "$OWNERSHIP" ]; then
     exit 1
 fi
 
-# A prior exact merged result may have queued its durable wake immediately
-# before interruption.
-# Finish only its identity-bound receipt before publishing a replacement poll.
-fm_pr_poll_retirement_recover_one "$STATE" "$ID" "$SCRIPT_DIR/fm-pr-poll.sh" || {
-  echo "error: pending PR poll retirement could not be validated" >&2
-  exit 1
-}
+PR_POLL_QUARANTINE_PENDING=0
+PR_POLL_RETIREMENT="$STATE/$ID.pr-poll-retirement"
+if [ -e "$PR_POLL_RETIREMENT" ] || [ -L "$PR_POLL_RETIREMENT" ]; then
+  if fm_pr_poll_retirement_parse "$PR_POLL_RETIREMENT" \
+    && [ "$FM_PR_RETIRE_RESULT" = quarantined ] \
+    && fm_pr_poll_retirement_receipt_valid "$STATE" "$ID"; then
+    [ "$FM_PR_RETIRE_URL" = "$URL" ] || {
+      echo "error: task $ID must reconcile quarantined PR ownership for $FM_PR_RETIRE_URL before registering $URL" >&2
+      exit 1
+    }
+    PR_POLL_QUARANTINE_PENDING=1
+  else
+    fm_pr_poll_retirement_recover_one "$STATE" "$ID" "$SCRIPT_DIR/fm-pr-poll.sh" || {
+      echo "error: pending PR poll retirement could not be validated" >&2
+      exit 1
+    }
+  fi
+fi
 
 # Refuse to arm a watch with no CLI on PATH to read it. The poll is silent on
 # every error by design, so a missing CLI would be indistinguishable from a
@@ -273,6 +284,13 @@ PR_POLL_PUBLISH_LOCK="$STATE/.pr-poll-publish-$ID.lock"
 fm_lock_acquire_wait "$PR_POLL_PUBLISH_LOCK"
 PR_POLL_PUBLISH_LOCK_HELD=1
 if fm_pr_poll_publish_prepared; then
+  if [ "$PR_POLL_QUARANTINE_PENDING" = 1 ] \
+    && ! fm_pr_poll_retirement_recover_one "$STATE" "$ID" "$SCRIPT_DIR/fm-pr-poll.sh"; then
+    fm_lock_release "$PR_POLL_PUBLISH_LOCK" || exit 1
+    PR_POLL_PUBLISH_LOCK_HELD=0
+    echo "error: reconciled PR poll was published but its quarantine receipt remains pending" >&2
+    exit 1
+  fi
   fm_lock_release "$PR_POLL_PUBLISH_LOCK" || exit 1
   PR_POLL_PUBLISH_LOCK_HELD=0
 else
