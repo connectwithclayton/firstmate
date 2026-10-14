@@ -135,6 +135,7 @@ EOF
     "harness=claude" \
     "kind=ship" \
     "mode=no-mistakes" \
+    "pr_ownership=proven-ready-status-v1" \
     "pr=https://github.com/kunchenguid/firstmate/pull/9"
   record_claude_state "$home/state" ship-task busy
   printf 'working: building the thing\n' > "$home/state/ship-task.status"
@@ -1436,6 +1437,7 @@ test_include_prs_maps_custom_branch_prefix_to_task() {
     "kind=ship" \
     "mode=no-mistakes" \
     "branch=fix/ship-task" \
+    "pr_ownership=proven-ready-status-v1" \
     "pr=https://github.com/kunchenguid/firstmate/pull/9"
   fakebin=$(make_fakebin "$home"); : > "$home/net.log"
   cat > "$fakebin/gh" <<'SH'

@@ -297,6 +297,7 @@ write_poll_meta() {
     "window=fm-$id" \
     "worktree=$case_dir/wt" \
     "$@" \
+    "pr_ownership=proven-ready-status-v1" \
     "pr=$url"
 }
 
@@ -1677,6 +1678,7 @@ SH
     "project=$dir/project" \
     'kind=ship' \
     'mode=local-only' \
+    'pr_ownership=proven-ready-status-v1' \
     'pr=https://github.com/o/r/pull/18'
   seed_canonical_poll "$dir" task-a https://github.com/o/r/pull/18
   fm_pr_poll_snapshot_capture "$dir/home/state" task-a "$POLL" \
@@ -2791,6 +2793,7 @@ test_persistent_secondmate_retirement_is_poll_only() {
     'mode=secondmate' \
     'backend=tmux' \
     "home=$dir/secondmate-home" \
+    'pr_ownership=proven-ready-status-v1' \
     'pr=https://github.com/o/r/pull/2' \
     'pr_head=0123456789abcdef0123456789abcdef01234567'
   mkdir -p "$dir/secondmate-home"
@@ -2868,6 +2871,110 @@ test_scout_poll_residue_is_retired_before_execution() {
     *) fail "scout residue surfaced an outcome instead of retiring silently: $(cat "$dir/watch.out")" ;;
   esac
   pass "watcher retires stale scout PR ownership before polling the forge"
+}
+
+test_promoted_legacy_poll_ownership_is_reconciled_before_execution() {
+  local dir state url rc
+  url=https://github.com/o/r/pull/95
+
+  dir=$(make_case promoted-legacy-pr-quarantine)
+  state="$dir/home/state"
+  fm_write_meta "$state/task-a.meta" \
+    'window=session:fm-task-a' \
+    "worktree=$dir/wt" \
+    "project=$dir/project" \
+    'kind=ship' \
+    'mode=no-mistakes' \
+    'backend=tmux' \
+    "pr=$url"
+  printf 'paused: awaiting review of %s\n' "$url" > "$state/task-a.status"
+  seed_canonical_poll "$dir" task-a "$url"
+  add_stop_custom_check "$dir"
+  : > "$dir/gh.log"
+
+  set +e
+  FM_TEST_GH_LOG="$dir/gh.log" FM_TEST_GH_STATE=MERGED \
+    run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/watch.out" 2> "$dir/watch.err"
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || fail "legacy ownership quarantine failed: $(cat "$dir/watch.err")"
+  assert_poll_absent "$state" task-a
+  [ ! -s "$dir/gh.log" ] || fail "quarantine queried the forge before ownership was proven"
+  grep -qx 'pr_ownership=quarantined-legacy-v1' "$state/task-a.meta" \
+    || fail "unclassifiable legacy ownership was not durably quarantined"
+  grep -qxF "pr=$url" "$state/task-a.meta" \
+    || fail "quarantine discarded the ambiguous identity instead of retaining it"
+  grep -qF 'quarantined legacy PR ownership' "$state/.wake-queue" \
+    || fail "quarantine did not publish deterministic reconciliation guidance"
+  [ ! -e "$state/task-a.pr-poll-merge-notified" ] \
+    || fail "quarantine emitted a merge outcome"
+
+  printf 'done: PR %s checks green\n' "$url" >> "$state/task-a.status"
+  run_check_entry_unprepared "$dir" task-a "$url" > "$dir/reconcile.out" 2> "$dir/reconcile.err" \
+    || fail "ready evidence could not reconcile quarantined ownership: $(cat "$dir/reconcile.err")"
+  grep -qx 'pr_ownership=proven-ready-status-v1' "$state/task-a.meta" \
+    || fail "reconciliation did not durably prove ready-status ownership"
+  fm_pr_poll_artifacts_valid "$state" task-a "$POLL" \
+    || fail "reconciliation did not restore authenticated monitoring"
+
+  dir=$(make_case promoted-legacy-pr-ready)
+  state="$dir/home/state"
+  fm_write_meta "$state/task-a.meta" \
+    'window=session:fm-task-a' \
+    "worktree=$dir/wt" \
+    "project=$dir/project" \
+    'kind=ship' \
+    'mode=no-mistakes' \
+    'backend=tmux' \
+    "pr=$url"
+  printf 'done: PR %s checks green\n' "$url" > "$state/task-a.status"
+  seed_canonical_poll "$dir" task-a "$url"
+  add_stop_custom_check "$dir"
+  : > "$dir/gh.log"
+  FM_TEST_GH_LOG="$dir/gh.log" FM_TEST_GH_STATE=OPEN \
+    run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/watch.out" 2> "$dir/watch.err" \
+    || fail "proven legacy ownership watcher failed: $(cat "$dir/watch.err")"
+  grep -qx 'pr_ownership=proven-ready-status-v1' "$state/task-a.meta" \
+    || fail "mode-valid ready evidence did not upgrade legacy ownership"
+  [ -s "$dir/gh.log" ] || fail "proven legacy ownership did not resume forge monitoring"
+  fm_pr_poll_artifacts_valid "$state" task-a "$POLL" \
+    || fail "proven legacy ownership did not retain authenticated monitoring"
+
+  dir=$(make_case promoted-legacy-pr-rejected)
+  state="$dir/home/state"
+  fm_write_meta "$state/task-a.meta" \
+    'window=session:fm-task-a' \
+    "worktree=$dir/wt" \
+    "project=$dir/project" \
+    'kind=ship' \
+    'mode=no-mistakes' \
+    'backend=tmux' \
+    "pr=$url"
+  mkdir -p "$dir/home/data/task-a"
+  printf '%s\n' '{"schema":"fm-contributions.v2","task":"task-a","records":[{"url":"https://github.com/o/r/pull/95","kind":"pr","ownership":{"state":"rejected","kind":"scout","source":"legacy-scout"},"pending":[],"seen":[],"notified":[],"error":null,"checked_at":null,"retired":null,"verdict":null,"observation":null}]}' \
+    > "$dir/home/data/task-a/contributions.json"
+  seed_canonical_poll "$dir" task-a "$url"
+  add_stop_custom_check "$dir"
+  : > "$dir/gh.log"
+  FM_TEST_GH_LOG="$dir/gh.log" FM_TEST_GH_STATE=MERGED \
+    run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/watch.out" 2> "$dir/watch.err" \
+    || fail "rejected legacy ownership watcher failed: $(cat "$dir/watch.err")"
+  assert_poll_absent "$state" task-a
+  ! grep -qE '^(pr|pr_head)=' "$state/task-a.meta" \
+    || fail "durably rejected scout ownership was retained"
+  grep -qx 'pr_ownership=rejected-scout-v1' "$state/task-a.meta" \
+    || fail "rejected scout provenance was not retained after identity cleanup"
+  grep -qxF "pr_rejected_url=$url" "$state/task-a.meta" \
+    || fail "rejected scout provenance lost its canonical URL"
+  [ ! -s "$dir/gh.log" ] || fail "durably rejected scout ownership queried the forge"
+  printf 'done: PR %s checks green\n' "$url" > "$state/task-a.status"
+  set +e
+  run_check_entry_unprepared "$dir" task-a "$url" > "$dir/rejected.out" 2> "$dir/rejected.err"
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "historical ready text reactivated durably rejected scout ownership"
+  assert_poll_absent "$state" task-a
+  pass "promoted legacy PR ownership is proven, rejected, or quarantined before monitoring"
 }
 
 test_scout_metadata_cleanup_recovers_without_poll_artifacts() {
@@ -3971,6 +4078,7 @@ test_merged_poll_reports_upward_from_a_secondmate_home_once
 test_different_merged_pr_for_same_task_is_not_absorbed
 test_persistent_secondmate_retirement_is_poll_only
 test_scout_poll_residue_is_retired_before_execution
+test_promoted_legacy_poll_ownership_is_reconciled_before_execution
 test_scout_metadata_cleanup_recovers_without_poll_artifacts
 test_scout_cleanup_skips_unrelated_control_locks
 test_scout_metadata_cleanup_retires_partial_poll

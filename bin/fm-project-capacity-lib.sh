@@ -77,6 +77,12 @@
 # shellcheck disable=SC2034 # read by bin/fm-spawn.sh after sourcing.
 FM_PROJECT_CAPACITY_DEFER_EXIT=75
 
+_FM_PROJECT_CAPACITY_LIB_DIR="$(d=${BASH_SOURCE[0]%/*}; [ "$d" != "${BASH_SOURCE[0]}" ] || d=.; cd "${d:-/}" && pwd)"
+if ! declare -F fm_pr_metadata_identity_parse >/dev/null 2>&1; then
+  # shellcheck source=bin/fm-pr-lib.sh
+  . "$_FM_PROJECT_CAPACITY_LIB_DIR/fm-pr-lib.sh"
+fi
+
 # The config directory holding this machine's declaration: the spawning home's
 # own <config-dir> when that home is the local root (so an override of it
 # applies), otherwise the root home's config/.
@@ -200,7 +206,7 @@ fm_project_capacity_occupants() {  # <project-lock> <project-dir> <first-state> 
       }
       kind=$(fm_meta_get "$meta" kind)
       [ "$kind" != secondmate ] || continue
-      [ -z "$(fm_meta_get "$meta" pr)" ] || continue
+      ! fm_pr_metadata_identity_parse "$meta" || continue
       project=$(fm_meta_get "$meta" project)
       [ -n "$project" ] || continue
       lock=

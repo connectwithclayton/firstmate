@@ -614,7 +614,8 @@ fm_dod_forge_head_is_named_head() {  # <mode>
 fm_dod_recorded_pr_on_forge() {  # <state> <id> <meta> <mode> <url>
   local state=$1 id=$2 meta=$3 mode=$4 url=$5
   [ -n "$meta" ] && [ -f "$meta" ] || return 1
-  [ "$(fm_dod_meta_value "$meta" pr)" = "$url" ] || return 1
+  fm_pr_metadata_identity_parse "$meta" || return 1
+  [ "$FM_PR_META_URL" = "$url" ] || return 1
   if fm_dod_forge_head_is_named_head "$mode" && [ -n "$(fm_dod_meta_value "$meta" pr_head)" ]; then
     return 0
   fi

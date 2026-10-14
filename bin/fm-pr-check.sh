@@ -76,17 +76,32 @@ if [ "$KIND" = scout ]; then
 fi
 
 REGISTERED_URL=
-if fm_pr_metadata_identity_parse "$META"; then
+REGISTERED_OWNERSHIP=
+if fm_pr_metadata_identity_parse_any "$META"; then
   REGISTERED_URL=$FM_PR_META_URL
+  REGISTERED_OWNERSHIP=$FM_PR_META_OWNERSHIP
 fi
 STATUS="$STATE/$ID.status"
-if [ "$REGISTERED_URL" != "$URL" ] && [ "${FM_PR_CHECK_MERGE:-}" != 1 ]; then
-  if [ ! -f "$STATUS" ] || [ ! -r "$STATUS" ] || [ -L "$STATUS" ] \
-    || [ "$(fm_pr_file_link_count "$STATUS")" != 1 ] \
-    || [ "$(status_latest_ready_pr_url "$MODE" < "$STATUS")" != "$URL" ]; then
+REJECTED_URL=$(grep '^pr_rejected_url=' "$META" | tail -1 | cut -d= -f2- || true)
+STATUS_READY_URL=
+if [ -f "$STATUS" ] && [ -r "$STATUS" ] && [ ! -L "$STATUS" ] \
+  && [ "$(fm_pr_file_link_count "$STATUS")" = 1 ]; then
+  STATUS_READY_URL=$(status_latest_ready_pr_url "$MODE" < "$STATUS")
+fi
+case "$REGISTERED_OWNERSHIP" in
+  proven-ready-status-v1|proven-merge-authorized-v1|proven-contribution-v1) OWNERSHIP=$REGISTERED_OWNERSHIP ;;
+  *) OWNERSHIP= ;;
+esac
+if [ "${FM_PR_CHECK_MERGE:-}" = 1 ]; then
+  OWNERSHIP=proven-merge-authorized-v1
+elif [ "$REJECTED_URL" = "$URL" ]; then
+  echo "error: task $ID has durable rejected scout provenance for $URL, so that pull request cannot be registered as this task's delivery" >&2
+  exit 1
+elif [ "$STATUS_READY_URL" = "$URL" ]; then
+  OWNERSHIP=proven-ready-status-v1
+elif [ "$REGISTERED_URL" != "$URL" ] || [ -z "$OWNERSHIP" ]; then
     echo "error: task $ID has no exact PR-ready status for $URL, so it cannot be registered as this task's delivery" >&2
     exit 1
-  fi
 fi
 
 # A prior exact merged result may have queued its durable wake immediately
@@ -223,10 +238,11 @@ STATE_DEVICE=$(fm_pr_file_device "$STATE") || exit 1
 META_TMP=$(mktemp "$STATE/.fm-pr-meta.XXXXXX") || exit 1
 while IFS= read -r line || [ -n "$line" ]; do
   case "$line" in
-    pr=*|pr_head=*) ;;
+    pr=*|pr_head=*|pr_ownership=*|pr_rejected_url=*) ;;
     *) printf '%s\n' "$line" >> "$META_TMP" || exit 1 ;;
   esac
 done < "$META"
+printf 'pr_ownership=%s\n' "$OWNERSHIP" >> "$META_TMP" || exit 1
 printf 'pr=%s\n' "$URL" >> "$META_TMP" || exit 1
 [ -z "$PR_HEAD" ] || printf 'pr_head=%s\n' "$PR_HEAD" >> "$META_TMP" || exit 1
 chmod 0600 "$META_TMP" || exit 1

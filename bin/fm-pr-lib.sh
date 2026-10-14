@@ -37,6 +37,7 @@ FM_PR_META_URL=
 FM_PR_META_HOST=
 FM_PR_META_PATH=
 FM_PR_META_NUMBER=
+FM_PR_META_OWNERSHIP=
 FM_PR_REG_ID=
 FM_PR_REG_PROVIDER=
 FM_PR_REG_URL=
@@ -393,13 +394,14 @@ fm_pr_regular_destination_on_device_or_absent() {
   [ ! -e "$path" ] || [ "$(fm_pr_file_device "$path")" = "$device" ]
 }
 
-fm_pr_metadata_identity_parse() {
-  local file=$1 line value pr_count=0 seen_pr=0 post_pr_invalid=0
+fm_pr_metadata_identity_parse_any() {
+  local file=$1 line value pr_count=0 ownership_count=0 seen_pr=0 post_pr_invalid=0
   FM_PR_META_PROVIDER=
   FM_PR_META_URL=
   FM_PR_META_HOST=
   FM_PR_META_PATH=
   FM_PR_META_NUMBER=
+  FM_PR_META_OWNERSHIP=
   [ -f "$file" ] && [ ! -L "$file" ] || return 1
   [ "$(fm_pr_file_link_count "$file")" = 1 ] || return 1
   while IFS= read -r line || [ -n "$line" ]; do
@@ -423,6 +425,17 @@ fm_pr_metadata_identity_parse() {
           fm_pr_head_valid "$value" || post_pr_invalid=1
         fi
         ;;
+      pr_ownership=*)
+        ownership_count=$((ownership_count + 1))
+        [ "$ownership_count" -eq 1 ] || continue
+        value=${line#pr_ownership=}
+        case "$value" in
+          proven-ready-status-v1|proven-merge-authorized-v1|proven-contribution-v1|rejected-scout-v1|quarantined-legacy-v1)
+            FM_PR_META_OWNERSHIP=$value
+            ;;
+          *) post_pr_invalid=1 ;;
+        esac
+        ;;
       x_request=*|x_request_ts=*|x_followups=*|x_platform=*|x_reply_max_chars=*)
         ;;
       *)
@@ -431,8 +444,71 @@ fm_pr_metadata_identity_parse() {
     esac
   done < "$file"
   [ "$pr_count" -eq 1 ] || return 1
+  [ "$ownership_count" -le 1 ] || return 1
   [ "$post_pr_invalid" -eq 0 ] || return 1
   [ -n "$FM_PR_META_URL" ]
+}
+
+fm_pr_metadata_identity_parse() {
+  fm_pr_metadata_identity_parse_any "$1" || return 1
+  case "$FM_PR_META_OWNERSHIP" in
+    proven-ready-status-v1|proven-merge-authorized-v1|proven-contribution-v1) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+fm_pr_metadata_ownership_set() {
+  local state=$1 id=$2 url=$3 ownership=$4 meta lock state_device tmp='' line failed=0
+  case "$ownership" in
+    proven-ready-status-v1|proven-merge-authorized-v1|proven-contribution-v1|rejected-scout-v1|quarantined-legacy-v1) ;;
+    *) return 1 ;;
+  esac
+  fm_pr_task_id_valid "$id" || return 1
+  meta="$state/$id.meta"
+  lock=$(fm_meta_lock_path "$meta") || return 1
+  fm_lock_acquire_wait "$lock" || return 1
+  state_device=$(fm_pr_file_device "$state") || failed=1
+  if [ "$failed" -eq 0 ]; then
+    fm_pr_metadata_identity_parse_any "$meta" || failed=1
+  fi
+  if [ "$failed" -eq 0 ] && [ "$FM_PR_META_URL" != "$url" ]; then
+    failed=1
+  fi
+  if [ "$failed" -eq 0 ]; then
+    tmp=$(mktemp "$state/.fm-pr-meta-ownership.XXXXXX") || failed=1
+  fi
+  if [ "$failed" -eq 0 ]; then
+    while IFS= read -r line || [ -n "$line" ]; do
+      case "$line" in
+        pr_ownership=*|pr_rejected_url=*) ;;
+        pr=*)
+          printf 'pr_ownership=%s\n' "$ownership" >> "$tmp" || { failed=1; break; }
+          printf '%s\n' "$line" >> "$tmp" || { failed=1; break; }
+          ;;
+        *) printf '%s\n' "$line" >> "$tmp" || { failed=1; break; } ;;
+      esac
+    done < "$meta" || failed=1
+  fi
+  if [ "$failed" -eq 0 ]; then
+    chmod 0600 "$tmp" || failed=1
+  fi
+  if [ "$failed" -eq 0 ]; then
+    fm_pr_private_file_valid "$tmp" 600 "$state_device" || failed=1
+  fi
+  if [ "$failed" -eq 0 ]; then
+    fm_pr_metadata_identity_parse_any "$tmp" || failed=1
+    [ "$FM_PR_META_URL" = "$url" ] && [ "$FM_PR_META_OWNERSHIP" = "$ownership" ] || failed=1
+  fi
+  if [ "$failed" -eq 0 ]; then
+    fm_pr_regular_destination_on_device_or_absent "$meta" "$state_device" || failed=1
+  fi
+  if [ "$failed" -eq 0 ]; then
+    mv -f -- "$tmp" "$meta" || failed=1
+    tmp=
+  fi
+  [ -z "$tmp" ] || rm -f -- "$tmp"
+  fm_lock_release "$lock" || failed=1
+  return "$failed"
 }
 
 # Sidecar layout: provider, url, host, path, number, one per line. A sidecar
@@ -731,7 +807,7 @@ fm_pr_poll_artifacts_content_valid() {
   [ "$FM_PR_REG_NUMBER" = "$FM_PR_DATA_NUMBER" ] || return 1
   [ "$FM_PR_REG_DATA_HASH" = "$data_hash" ] || return 1
   [ "$FM_PR_REG_TEMPLATE_HASH" = "$template_hash" ] || return 1
-  fm_pr_metadata_identity_parse "$meta" || return 1
+  fm_pr_metadata_identity_parse_any "$meta" || return 1
   [ "$FM_PR_META_PROVIDER" = "$FM_PR_DATA_PROVIDER" ] || return 1
   [ "$FM_PR_META_URL" = "$FM_PR_DATA_URL" ] || return 1
   [ "$FM_PR_META_HOST" = "$FM_PR_DATA_HOST" ] || return 1
@@ -912,7 +988,7 @@ fm_pr_poll_retirement_parse() {
   [[ "$check_identity" =~ ^[0-9]+:[0-9]+$ ]] || return 1
   [[ "$reg_hash" =~ ^[0-9a-f]{64}$ ]] || return 1
   [[ "$reg_identity" =~ ^[0-9]+:[0-9]+$ ]] || return 1
-  [ "$result" = merged ] || [ "$result" = scout-residue ] || return 1
+  [ "$result" = merged ] || [ "$result" = scout-residue ] || [ "$result" = quarantined ] || return 1
   FM_PR_RETIRE_ID=$id
   FM_PR_RETIRE_PROVIDER=$provider
   FM_PR_RETIRE_URL=$url
@@ -928,28 +1004,38 @@ fm_pr_poll_retirement_parse() {
   FM_PR_RETIRE_RESULT=$result
 }
 
-fm_pr_scout_metadata_identity_cleared() {
-  local meta=$1 state_device=$2 kind
+fm_pr_rejected_metadata_identity_cleared() {
+  local meta=$1 state_device=$2 expected_url=${3:-} kind ownership rejected_url
   fm_pr_private_file_valid "$meta" 600 "$state_device" || return 1
   kind=$(grep '^kind=' "$meta" | tail -1 | cut -d= -f2- || true)
-  [ "$kind" = scout ] || return 1
+  ownership=$(grep '^pr_ownership=' "$meta" | tail -1 | cut -d= -f2- || true)
+  rejected_url=$(grep '^pr_rejected_url=' "$meta" | tail -1 | cut -d= -f2- || true)
+  if [ "$kind" != scout ]; then
+    [ "$(grep -c '^pr_ownership=' "$meta" || true)" -eq 1 ] \
+      && [ "$(grep -c '^pr_rejected_url=' "$meta" || true)" -eq 1 ] || return 1
+    [ "$ownership" = rejected-scout-v1 ] && [ -n "$rejected_url" ] || return 1
+    fm_pr_url_parse "$rejected_url" || return 1
+    [ -z "$expected_url" ] || [ "$FM_PR_URL" = "$expected_url" ] || return 1
+  fi
   ! grep -qE '^(pr|pr_head)=' "$meta"
 }
 
-fm_pr_scout_metadata_identity_clear() {
-  local state=$1 id=$2 url=$3 meta lock state_device tmp= line failed=0 kind
+fm_pr_rejected_metadata_identity_clear() {
+  local state=$1 id=$2 url=$3 meta lock state_device tmp= line failed=0 kind ownership
   fm_pr_task_id_valid "$id" || return 1
   meta="$state/$id.meta"
   lock=$(fm_meta_lock_path "$meta") || return 1
   fm_lock_acquire_wait "$lock" || return 1
   state_device=$(fm_pr_file_device "$state") || failed=1
-  if [ "$failed" -eq 0 ] && fm_pr_scout_metadata_identity_cleared "$meta" "$state_device"; then
+  if [ "$failed" -eq 0 ] && fm_pr_rejected_metadata_identity_cleared "$meta" "$state_device" "$url"; then
     fm_lock_release "$lock"
     return $?
   fi
   if [ "$failed" -eq 0 ]; then
     kind=$(grep '^kind=' "$meta" | tail -1 | cut -d= -f2- || true)
-    if [ "$kind" != scout ] || ! fm_pr_metadata_identity_parse "$meta" \
+    ownership=$(grep '^pr_ownership=' "$meta" | tail -1 | cut -d= -f2- || true)
+    if { [ "$kind" != scout ] && [ "$ownership" != rejected-scout-v1 ]; } \
+      || ! fm_pr_metadata_identity_parse_any "$meta" \
       || [ "$FM_PR_META_URL" != "$url" ]; then
       failed=1
     fi
@@ -960,7 +1046,13 @@ fm_pr_scout_metadata_identity_clear() {
   if [ "$failed" -eq 0 ]; then
     while IFS= read -r line || [ -n "$line" ]; do
       case "$line" in
-        pr=*|pr_head=*) ;;
+        pr=*)
+          if [ "$kind" != scout ]; then
+            printf 'pr_ownership=rejected-scout-v1\npr_rejected_url=%s\n' "$url" >> "$tmp" \
+              || { failed=1; break; }
+          fi
+          ;;
+        pr_head=*|pr_ownership=*|pr_rejected_url=*) ;;
         *) printf '%s\n' "$line" >> "$tmp" || { failed=1; break; } ;;
       esac
     done < "$meta" || failed=1
@@ -979,7 +1071,7 @@ fm_pr_scout_metadata_identity_clear() {
     tmp=
   fi
   if [ "$failed" -eq 0 ]; then
-    fm_pr_scout_metadata_identity_cleared "$meta" "$state_device" || failed=1
+    fm_pr_rejected_metadata_identity_cleared "$meta" "$state_device" "$url" || failed=1
   fi
   [ -z "$tmp" ] || rm -f -- "$tmp"
   fm_lock_release "$lock" || failed=1
@@ -997,10 +1089,10 @@ fm_pr_poll_retirement_receipt_valid() {
   [ "$FM_PR_RETIRE_ID" = "$id" ] || return 1
   meta="$state/$id.meta"
   if [ "$FM_PR_RETIRE_RESULT" = scout-residue ] \
-    && fm_pr_scout_metadata_identity_cleared "$meta" "$state_device"; then
+    && fm_pr_rejected_metadata_identity_cleared "$meta" "$state_device" "$FM_PR_RETIRE_URL"; then
     :
   else
-    fm_pr_metadata_identity_parse "$meta" || return 1
+    fm_pr_metadata_identity_parse_any "$meta" || return 1
     [ "$FM_PR_META_PROVIDER" = "$FM_PR_RETIRE_PROVIDER" ] || return 1
     [ "$FM_PR_META_URL" = "$FM_PR_RETIRE_URL" ] || return 1
     [ "$FM_PR_META_HOST" = "$FM_PR_RETIRE_HOST" ] || return 1
@@ -1426,7 +1518,7 @@ fm_pr_poll_retirement_discard_obsolete() {
 
 fm_pr_poll_retirement_publish() {
   local state=$1 id=$2 template=$3 result=$4 receipt state_device tmp
-  [ "$result" = merged ] || [ "$result" = scout-residue ] || return 1
+  [ "$result" = merged ] || [ "$result" = scout-residue ] || [ "$result" = quarantined ] || return 1
   fm_pr_poll_snapshot_matches "$state" "$id" "$template" || return 1
   state_device=$(fm_pr_file_device "$state") || return 1
   receipt="$state/$id.pr-poll-retirement"
@@ -1478,7 +1570,7 @@ fm_pr_poll_retirement_recover_one() {
   fi
   if [ "$FM_PR_RETIRE_RESULT" = scout-residue ]; then
     residue_url=$FM_PR_RETIRE_URL
-    fm_pr_scout_metadata_identity_clear "$state" "$id" "$residue_url" || return 1
+    fm_pr_rejected_metadata_identity_clear "$state" "$id" "$residue_url" || return 1
     fm_pr_poll_retirement_receipt_valid "$state" "$id" || return 1
   fi
   state_device=$(fm_pr_file_device "$state") || return 1

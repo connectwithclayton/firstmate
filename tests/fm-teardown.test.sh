@@ -383,13 +383,15 @@ append_pr_meta_for_current_head() {
   local case_dir=$1 head
   head=$(git -C "$case_dir/wt" rev-parse HEAD)
   printf '%s\n' \
+    'pr_ownership=proven-ready-status-v1' \
     'pr=https://github.com/example/repo/pull/7' \
     "pr_head=$head" >> "$case_dir/state/task-x1.meta"
 }
 
 append_pr_meta_url() {
   local case_dir=$1
-  printf '%s\n' 'pr=https://github.com/example/repo/pull/7' >> "$case_dir/state/task-x1.meta"
+  printf '%s\n' 'pr_ownership=proven-ready-status-v1' \
+    'pr=https://github.com/example/repo/pull/7' >> "$case_dir/state/task-x1.meta"
 }
 
 commit_tree_from_wt_head() {
@@ -724,7 +726,8 @@ test_teardown_closes_the_backlog_item_itself() {
   local case_dir out
   case_dir=$(make_case tasks-axi-close)
   write_meta "$case_dir" no-mistakes ship
-  printf '%s\n' 'pr=https://github.com/example/repo/pull/7' >> "$case_dir/state/task-x1.meta"
+  printf '%s\n' 'pr_ownership=proven-ready-status-v1' \
+    'pr=https://github.com/example/repo/pull/7' >> "$case_dir/state/task-x1.meta"
   seed_backlog_in_flight "$case_dir"
 
   out=$(run_teardown "$case_dir") || fail "teardown failed with a real backlog"
@@ -747,7 +750,7 @@ test_teardown_closes_a_gerrit_task_with_its_change_url_as_a_note() {
   local case_dir out real_tasks_axi gerrit_url=https://gerrit.example.com/c/project/+/12345
   case_dir=$(make_case tasks-axi-close-gerrit)
   write_meta "$case_dir" no-mistakes ship
-  printf 'pr=%s\n' "$gerrit_url" >> "$case_dir/state/task-x1.meta"
+  printf 'pr_ownership=proven-ready-status-v1\npr=%s\n' "$gerrit_url" >> "$case_dir/state/task-x1.meta"
   seed_backlog_in_flight "$case_dir"
   # Pin the refusal tasks-axi applies to a --pr link that is not a canonical
   # GitHub pull request, so this case keeps reproducing whatever the installed
@@ -778,7 +781,8 @@ SH
 
   case_dir=$(make_case tasks-axi-close-github-under-refusal)
   write_meta "$case_dir" no-mistakes ship
-  printf '%s\n' 'pr=https://github.com/example/repo/pull/7' >> "$case_dir/state/task-x1.meta"
+  printf '%s\n' 'pr_ownership=proven-ready-status-v1' \
+    'pr=https://github.com/example/repo/pull/7' >> "$case_dir/state/task-x1.meta"
   seed_backlog_in_flight "$case_dir"
   cp "$TMP_ROOT/tasks-axi-close-gerrit/fakebin/tasks-axi" "$case_dir/fakebin/tasks-axi"
   out=$(run_teardown "$case_dir" 2>&1) || fail "teardown of a landed GitHub task failed: $out"
@@ -792,7 +796,8 @@ test_teardown_manual_backend_leaves_the_backlog_to_the_operator() {
   local case_dir out backlog_path
   case_dir=$(make_case tasks-axi-manual-optout)
   write_meta "$case_dir" no-mistakes ship
-  printf '%s\n' 'pr=https://github.com/example/repo/pull/7' >> "$case_dir/state/task-x1.meta"
+  printf '%s\n' 'pr_ownership=proven-ready-status-v1' \
+    'pr=https://github.com/example/repo/pull/7' >> "$case_dir/state/task-x1.meta"
   printf '%s\n' manual > "$case_dir/config/backlog-backend"
   seed_backlog_in_flight "$case_dir"
 
@@ -1010,6 +1015,7 @@ test_squash_merged_rebased_branch_allows() {
   write_meta "$case_dir" no-mistakes ship
   pr_head=$(setup_squash_rebased_history "$case_dir" rebased)
   printf '%s\n' \
+    'pr_ownership=proven-ready-status-v1' \
     'pr=https://github.com/example/repo/pull/7' \
     "pr_head=$pr_head" >> "$case_dir/state/task-x1.meta"
   add_gh_pr_merged_for_head "$case_dir" "$pr_head"
@@ -1059,6 +1065,7 @@ test_squash_merged_forgejo_pr_allows_when_main_moved_on() {
     git -C "$tmp" push -q origin main
     rm -rf "$tmp"
     printf '%s\n' \
+      'pr_ownership=proven-ready-status-v1' \
       'pr=https://git.example.org/team/repo/pulls/7' \
       "pr_head=$pr_head" >> "$case_dir/state/task-x1.meta"
     add_gh_axi_error "$case_dir"
@@ -1088,6 +1095,7 @@ test_squash_merged_same_file_different_content_refuses() {
   pr_head=$(setup_squash_rebased_history "$case_dir" stale)
   local_head=$(git -C "$case_dir/wt" rev-parse HEAD)
   printf '%s\n' \
+    'pr_ownership=proven-ready-status-v1' \
     'pr=https://github.com/example/repo/pull/7' \
     "pr_head=$pr_head" >> "$case_dir/state/task-x1.meta"
   add_gh_pr_merged_for_head "$case_dir" "$pr_head"
@@ -1113,6 +1121,7 @@ test_squash_merged_rebased_local_with_unlanded_commit_refuses() {
   pr_head=$(setup_squash_rebased_history "$case_dir" rebased-plus-unlanded)
   local_head=$(git -C "$case_dir/wt" rev-parse HEAD)
   printf '%s\n' \
+    'pr_ownership=proven-ready-status-v1' \
     'pr=https://github.com/example/repo/pull/7' \
     "pr_head=$pr_head" >> "$case_dir/state/task-x1.meta"
   add_gh_pr_merged_for_head "$case_dir" "$pr_head"
@@ -1135,6 +1144,7 @@ test_squash_merged_stale_local_refuses_when_forge_unreachable() {
   pr_head=$(setup_squash_rebased_history "$case_dir" stale)
   local_head=$(git -C "$case_dir/wt" rev-parse HEAD)
   printf '%s\n' \
+    'pr_ownership=proven-ready-status-v1' \
     'pr=https://github.com/example/repo/pull/7' \
     "pr_head=$pr_head" >> "$case_dir/state/task-x1.meta"
   add_gh_axi_error "$case_dir"
@@ -1309,7 +1319,8 @@ test_dirty_worktree_refuses() {
   local case_dir rc pr_head
   case_dir=$(make_case dirty-wt)
   write_meta "$case_dir" no-mistakes ship
-  printf '%s\n' 'pr=https://github.com/example/repo/pull/7' >> "$case_dir/state/task-x1.meta"
+  printf '%s\n' 'pr_ownership=proven-ready-status-v1' \
+    'pr=https://github.com/example/repo/pull/7' >> "$case_dir/state/task-x1.meta"
   # The committed work has fully landed (merged PR + content in default), but an
   # uncommitted edit remains. Dirtiness must refuse regardless: the reset would
   # discard those changes.
@@ -1730,7 +1741,8 @@ test_gh_error_and_content_absent_refuses() {
   local case_dir rc
   case_dir=$(make_case gh-error)
   write_meta "$case_dir" no-mistakes ship
-  printf '%s\n' 'pr=https://github.com/example/repo/pull/7' >> "$case_dir/state/task-x1.meta"
+  printf '%s\n' 'pr_ownership=proven-ready-status-v1' \
+    'pr=https://github.com/example/repo/pull/7' >> "$case_dir/state/task-x1.meta"
   # Real content not pushed, the PR lookup errors, and origin/main never gained the
   # content. The fail-safe must refuse rather than allow on a transient gh failure.
   wt_commit_file "$case_dir" feature.txt hello "add feature"

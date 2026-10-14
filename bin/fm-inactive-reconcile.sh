@@ -330,10 +330,14 @@ meta_incarnation() { # <meta>
 pr_for_task() { # <meta> [preferred-line]
   local meta=$1 preferred=${2:-} value mode
   [ "$(meta_field "$meta" kind)" != scout ] || return 0
-  value=$(meta_field "$meta" pr)
+  value=
+  if fm_pr_metadata_identity_parse "$meta"; then
+    value=$FM_PR_META_URL
+  fi
   if [ -z "$value" ] && [ -n "$preferred" ]; then
     mode=$(meta_field "$meta" mode)
     value=$(printf '%s\n' "$preferred" | status_latest_ready_pr_url "$mode" || true)
+    [ "$value" != "$(meta_field "$meta" pr_rejected_url)" ] || value=
   fi
   clean_field "$value"
 }

@@ -263,6 +263,7 @@ test_legacy_ship_pr_ownership_survives_identity_removal() {
     "worktree=$home/wt" \
     'pr=https://github.com/o/r/pull/11' \
     "pr_head=$HEAD_A"
+  printf 'done: PR https://github.com/o/r/pull/11 checks green\n' > "$home/state/delivery.status"
   printf '# Backlog\n\nManual home without a structured task row.\n' > "$home/data/backlog.md"
 
   input="$home/input.json"
@@ -295,6 +296,7 @@ test_current_ship_ownership_outranks_stale_scout_backlog() {
   fm_write_meta "$home/state/delivery.meta" \
     "worktree=$home/wt" \
     'kind=ship' \
+    'pr_ownership=proven-ready-status-v1' \
     'pr=https://github.com/o/r/pull/12' \
     "pr_head=$HEAD_A"
 
@@ -642,6 +644,7 @@ test_retired_and_unsupported_coverage() {
   fm_write_meta "$home/state/retained.meta" \
     "worktree=$home/wt" \
     'kind=ship' \
+    'pr_ownership=proven-ready-status-v1' \
     'pr=https://github.com/o/r/pull/14' \
     "pr_head=$HEAD_A"
   with_home "$home" "$ROOT/bin/fm-contributions.sh" migrate-ownership retained \

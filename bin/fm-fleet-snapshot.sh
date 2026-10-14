@@ -777,14 +777,21 @@ task_json_lines() {
     fi
     status_log="$SNAPSHOT_TASK_DIR/$id.status"
     report_path="$SNAPSHOT_TASK_DIR/$id.report"
-    pr=$(meta_value "$meta" pr)
-    pr_head=$(meta_value "$meta" pr_head)
+    pr=
+    pr_head=
+    if fm_pr_metadata_identity_parse "$meta"; then
+      pr=$FM_PR_META_URL
+      pr_head=$(meta_value "$meta" pr_head)
+    fi
     if [ "$kind" = scout ]; then
       pr=
       pr_head=
       pr_source=absent
     elif [ -n "$pr" ]; then
       pr_source=meta
+    elif [ "$(meta_value "$meta" pr_rejected_url)" = "$(ready_pr_url_in_file "$status_log" "$mode" || true)" ] \
+      && [ -n "$(meta_value "$meta" pr_rejected_url)" ]; then
+      pr_source=absent
     else
       pr_from_status=$(ready_pr_url_in_file "$status_log" "$mode" || true)
       pr=$pr_from_status
@@ -1983,7 +1990,7 @@ scout_report_lines() {
 
 BACKLOG_JSON=$(backlog_json) || { echo "fm-fleet-snapshot: backlog read failed" >&2; exit 1; }
 contribution_tasks_json() {
-  local meta id kind merge_authority
+  local meta id kind mode status merge_authority pr_url pr_head legacy_url ready_url
   for meta in "$STATE"/*.meta; do
     [ -f "$meta" ] && [ ! -L "$meta" ] || continue
     id=$(basename "$meta" .meta)
@@ -1993,8 +2000,29 @@ contribution_tasks_json() {
     if fm_merge_authority_resolve "$FM_HOME" "$STATE" "$meta" "$id"; then
       merge_authority=$FM_MERGE_AUTHORITY
     fi
+    pr_url=
+    pr_head=
+    if fm_pr_metadata_identity_parse "$meta"; then
+      pr_url=$FM_PR_META_URL
+      pr_head=$(meta_value "$meta" pr_head)
+    elif fm_pr_metadata_identity_parse_any "$meta"; then
+      legacy_url=$FM_PR_META_URL
+      mode=$(meta_value "$meta" mode)
+      status="$STATE/$id.status"
+      ready_url=$(ready_pr_url_in_file "$status" "$mode" || true)
+      if [ "$ready_url" = "$legacy_url" ] \
+        && [ "$ready_url" != "$(meta_value "$meta" pr_rejected_url)" ]; then
+        pr_url=$legacy_url
+        pr_head=$(meta_value "$meta" pr_head)
+      fi
+    elif [ -n "$(meta_value "$meta" pr_rejected_url)" ]; then
+      ready_url=$(ready_pr_url_in_file "$STATE/$id.status" "$(meta_value "$meta" mode)" || true)
+      if [ -n "$ready_url" ] && [ "$ready_url" != "$(meta_value "$meta" pr_rejected_url)" ]; then
+        pr_url=$ready_url
+      fi
+    fi
     jq -n --arg id "$id" --arg kind "$kind" \
-      --arg url "$(meta_value "$meta" pr)" --arg head "$(meta_value "$meta" pr_head)" \
+      --arg url "$pr_url" --arg head "$pr_head" \
       --arg merge_authority "$merge_authority" \
       '{id:$id,kind:$kind,pr:(if $kind == "scout" then {url:"",head:""} else {url:$url,head:$head} end),merge_authority:$merge_authority}'
   done | jq -s .

@@ -55,13 +55,25 @@ make_case() {
 }
 
 write_task_meta() {
-  local case_dir=$1
+  local case_dir=$1 arg has_pr=0
   shift
-  fm_write_meta "$case_dir/state/task-x1.meta" \
-    "window=fm-task-x1" \
-    "worktree=$case_dir/wt" \
-    "project=$case_dir/project" \
-    "$@"
+  for arg in "$@"; do
+    case "$arg" in pr=*) has_pr=1 ;; esac
+  done
+  if [ "$has_pr" -eq 1 ]; then
+    fm_write_meta "$case_dir/state/task-x1.meta" \
+      "window=fm-task-x1" \
+      "worktree=$case_dir/wt" \
+      "project=$case_dir/project" \
+      "pr_ownership=proven-ready-status-v1" \
+      "$@"
+  else
+    fm_write_meta "$case_dir/state/task-x1.meta" \
+      "window=fm-task-x1" \
+      "worktree=$case_dir/wt" \
+      "project=$case_dir/project" \
+      "$@"
+  fi
 }
 
 stale_and_pr_commits() {

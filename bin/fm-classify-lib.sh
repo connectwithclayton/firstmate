@@ -70,6 +70,10 @@ case $- in *u*) _fm_classify_nounset=on ;; *) _fm_classify_nounset=off ;; esac
 # shellcheck source=bin/fm-timeout-lib.sh
 # shellcheck disable=SC1091
 . "$_FM_CLASSIFY_LIB_DIR/fm-timeout-lib.sh"
+if ! declare -F fm_pr_url_parse >/dev/null 2>&1; then
+  # shellcheck source=bin/fm-pr-lib.sh
+  . "$_FM_CLASSIFY_LIB_DIR/fm-pr-lib.sh"
+fi
 [ "$_fm_classify_nounset" = on ] || set +u
 unset _fm_classify_nounset
 
@@ -755,16 +759,6 @@ status_pr_url_from_done_note() {  # <note>
   printf '%s\n' "$url"
 }
 
-status_pr_url_provider() {  # <validated-url>
-  case "$1" in
-    */c/*/+/[1-9]*) printf 'gerrit\n' ;;
-    */-/merge_requests/[1-9]*) printf 'gitlab\n' ;;
-    */pulls/[1-9]*) printf 'forgejo\n' ;;
-    */pull/[1-9]*) printf 'github\n' ;;
-    *) return 1 ;;
-  esac
-}
-
 status_latest_ready_pr_url() {  # [<delivery-mode>]
   local mode=${1:-} line verb note url provider latest=''
   while IFS= read -r line || [ -n "$line" ]; do
@@ -772,7 +766,9 @@ status_latest_ready_pr_url() {  # [<delivery-mode>]
     [ "$verb" = done ] || continue
     note=$(status_line_note "$line")
     url=$(status_pr_url_from_done_note "$note") || continue
-    provider=$(status_pr_url_provider "$url") || continue
+    fm_pr_url_parse "$url" || continue
+    url=$FM_PR_URL
+    provider=$FM_PR_PROVIDER
     case "$provider:$mode" in
       gerrit:no-mistakes|gerrit:direct-PR|gerrit:)
         case "$note" in "PR $url "*published\ for\ review*) ;; *) continue ;; esac

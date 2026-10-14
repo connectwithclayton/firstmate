@@ -95,6 +95,7 @@ EOF
     "kind=ship" \
     "mode=ship" \
     "yolo=off" \
+    "pr_ownership=proven-ready-status-v1" \
     "pr=https://github.com/kunchenguid/firstmate/pull/9"
   printf 'needs-decision: choose an API shape\n' > "$home/state/ship-task.status"
   # A working ship task proves it through its own semantic busy-state record
@@ -264,7 +265,8 @@ test_scout_pr_mention_is_not_an_artifact() {
   gerrit_url=https://gerrit.example/c/o/r/+/91
   mkdir -p "$home/data/scout-mentioned" "$home/projects/scout" "$home/projects/stale" \
     "$home/projects/ship" "$home/projects/unready" "$home/projects/direct" \
-    "$home/projects/gerrit-ready" "$home/projects/gerrit-wrong"
+    "$home/projects/gerrit-ready" "$home/projects/gerrit-wrong" \
+    "$home/projects/invalid-host" "$home/projects/insecure-github"
   printf '# Scout report\n' > "$home/data/scout-mentioned/report.md"
   fm_write_meta "$home/state/scout-mentioned.meta" \
     'window=firstmate:fm-scout-mentioned' \
@@ -325,6 +327,22 @@ test_scout_pr_mention_is_not_an_artifact() {
     'kind=ship' \
     'mode=no-mistakes'
   printf 'done: PR %s checks green\n' "$gerrit_url" > "$home/state/gerrit-wrong.status"
+  fm_write_meta "$home/state/invalid-host.meta" \
+    'window=firstmate:fm-invalid-host' \
+    "worktree=$home/projects/invalid-host" \
+    'project=alpha' \
+    'harness=codex' \
+    'kind=ship' \
+    'mode=no-mistakes'
+  printf 'done: PR https://example.test/o/r/pull/7 checks green\n' > "$home/state/invalid-host.status"
+  fm_write_meta "$home/state/insecure-github.meta" \
+    'window=firstmate:fm-insecure-github' \
+    "worktree=$home/projects/insecure-github" \
+    'project=alpha' \
+    'harness=codex' \
+    'kind=ship' \
+    'mode=no-mistakes'
+  printf 'done: PR http://github.com/o/r/pull/8 checks green\n' > "$home/state/insecure-github.status"
 
   out=$(PATH="$fakebin:$PATH" FM_HOME="$home" "$SNAPSHOT" --json)
   printf '%s' "$out" | jq -e --arg old_url "$old_url" --arg url "$url" --arg gerrit_url "$gerrit_url" '
@@ -348,6 +366,12 @@ test_scout_pr_mention_is_not_an_artifact() {
       | .pr.url == $gerrit_url and .pr.source == "status_event")
       and
     (.tasks[] | select(.id == "gerrit-wrong")
+      | .pr == {url:null,source:"absent",head:null})
+      and
+    (.tasks[] | select(.id == "invalid-host")
+      | .pr == {url:null,source:"absent",head:null})
+      and
+    (.tasks[] | select(.id == "insecure-github")
       | .pr == {url:null,source:"absent",head:null})
   ' >/dev/null \
     || fail "snapshot attributed a PR without delivery-mode/provider evidence: $out"

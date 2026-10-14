@@ -2641,7 +2641,7 @@ clear_orphaned_scout_pr_identities() {
       if fm_pr_poll_snapshot_capture "$STATE" "$id" "$SCRIPT_DIR/fm-pr-poll.sh"; then
         :
       elif [ ! -e "$STATE/$id.pr-poll-retirement" ] && [ ! -L "$STATE/$id.pr-poll-retirement" ] \
-        && fm_pr_metadata_identity_parse "$meta"; then
+        && fm_pr_metadata_identity_parse_any "$meta"; then
         url=$FM_PR_META_URL
         partial_failed=0
         for path in "$STATE/$id.check.sh" "$STATE/$id.pr-poll-registration" "$STATE/$id.pr-poll"; do
@@ -2651,7 +2651,7 @@ clear_orphaned_scout_pr_identities() {
           [ ! -e "$path" ] && [ ! -L "$path" ] || partial_failed=1
         done
         if [ "$partial_failed" -eq 0 ]; then
-          fm_pr_scout_metadata_identity_clear "$STATE" "$id" "$url" || failed=1
+          fm_pr_rejected_metadata_identity_clear "$STATE" "$id" "$url" || failed=1
         else
           failed=1
         fi
@@ -2694,6 +2694,62 @@ retire_pr_poll() {  # <id> <result>
     triage_log "PR poll retirement deferred because its canonical snapshot changed for $id"
   fi
   return 1
+}
+
+reconcile_pr_poll_ownership() {  # <id> <provider> <url> <host> <path> <number>
+  local id=$1 provider=$2 url=$3 host=$4 path=$5 number=$6 meta status mode ready contributions contribution_ownership
+  meta="$STATE/$id.meta"
+  if fm_pr_metadata_identity_parse "$meta" \
+    && [ "$FM_PR_META_PROVIDER" = "$provider" ] \
+    && [ "$FM_PR_META_URL" = "$url" ] \
+    && [ "$FM_PR_META_HOST" = "$host" ] \
+    && [ "$FM_PR_META_PATH" = "$path" ] \
+    && [ "$FM_PR_META_NUMBER" = "$number" ]; then
+    return 0
+  fi
+  fm_pr_metadata_identity_parse_any "$meta" || return 1
+  [ "$FM_PR_META_PROVIDER" = "$provider" ] \
+    && [ "$FM_PR_META_URL" = "$url" ] \
+    && [ "$FM_PR_META_HOST" = "$host" ] \
+    && [ "$FM_PR_META_PATH" = "$path" ] \
+    && [ "$FM_PR_META_NUMBER" = "$number" ] || return 1
+  if fm_merge_authority_read "$STATE" "$id" "$provider" "$host" "$path" "$number"; then
+    fm_pr_metadata_ownership_set "$STATE" "$id" "$url" proven-merge-authorized-v1 || return 1
+    return 0
+  fi
+  contributions="$FM_HOME/data/$id/contributions.json"
+  contribution_ownership=
+  if command -v jq >/dev/null 2>&1 && [ -f "$contributions" ] && [ ! -L "$contributions" ]; then
+    contribution_ownership=$(jq -r --arg url "$url" '
+      if .schema != "fm-contributions.v2" then ""
+      else first(.records[]? | select(.kind == "pr" and .url == $url)
+        | if .ownership == {state:"owned",kind:"ship",source:"task-pr"}
+            or .ownership == {state:"owned",kind:"ship",source:"backlog-link"} then "owned"
+          elif .ownership == {state:"rejected",kind:"scout",source:"legacy-scout"} then "rejected"
+          else "" end) // "" end
+    ' "$contributions" 2>/dev/null) || contribution_ownership=
+  fi
+  if [ "$contribution_ownership" = owned ]; then
+    fm_pr_metadata_ownership_set "$STATE" "$id" "$url" proven-contribution-v1 || return 1
+    return 0
+  fi
+  if [ "$contribution_ownership" = rejected ]; then
+    fm_pr_metadata_ownership_set "$STATE" "$id" "$url" rejected-scout-v1 || return 1
+    return 2
+  fi
+  status="$STATE/$id.status"
+  mode=$(fm_meta_get "$meta" mode)
+  ready=
+  if [ -f "$status" ] && [ ! -L "$status" ] \
+    && [ "$(fm_pr_file_link_count "$status")" = 1 ]; then
+    ready=$(status_latest_ready_pr_url "$mode" < "$status")
+  fi
+  if [ "$ready" = "$url" ]; then
+    fm_pr_metadata_ownership_set "$STATE" "$id" "$url" proven-ready-status-v1 || return 1
+    return 0
+  fi
+  fm_pr_metadata_ownership_set "$STATE" "$id" "$url" quarantined-legacy-v1 || return 1
+  return 3
 }
 
 # A poll armed before a state volume remount can fail capture only because its
@@ -2892,6 +2948,41 @@ while :; do
             triage_log "retired PR ownership residue from scout $id"
             continue
           fi
+          reconcile_result=0
+          reconcile_pr_poll_ownership "$id" "$provider" "$url" "$host" "$path" "$number" \
+            || reconcile_result=$?
+          case "$reconcile_result" in
+            0) ;;
+            2)
+              if ! retire_pr_poll "$id" scout-residue; then
+                pr_poll_control_release || exit 1
+                triage_log "rejected legacy scout PR ownership for $id could not be retired"
+                continue
+              fi
+              pr_poll_control_release || exit 1
+              touch "$STATE/.last-check"
+              triage_log "retired rejected legacy scout PR ownership from $id"
+              continue
+              ;;
+            3)
+              if ! retire_pr_poll "$id" quarantined; then
+                pr_poll_control_release || exit 1
+                triage_log "unclassified legacy PR ownership for $id could not be quarantined"
+                continue
+              fi
+              pr_poll_control_release || exit 1
+              reason="check: quarantined legacy PR ownership for $id ($url); append the current mode-valid PR-ready status and run fm-pr-check.sh to reconcile"
+              fm_wake_append check "pr-ownership-$id" "$reason" || exit 1
+              touch "$STATE/.last-check"
+              wake "$reason"
+              continue
+              ;;
+            *)
+              pr_poll_control_release || exit 1
+              triage_log "legacy PR ownership for $id could not be reconciled"
+              continue
+              ;;
+          esac
           run_check_capture "$SCRIPT_DIR/fm-pr-poll.sh" --validated \
             "$provider" "$url" "$host" "$path" "$number" || exit 1
           out=$FM_CHECK_RESULT

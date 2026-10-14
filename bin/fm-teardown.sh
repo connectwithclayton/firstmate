@@ -1160,7 +1160,18 @@ if [ "${FM_TEARDOWN_GUARD_DONE:-0}" != 1 ]; then
   "$FM_ROOT/bin/fm-guard.sh" || true
 fi
 HOME_PATH=$(grep '^home=' "$META" | cut -d= -f2- || true)
-PR_URL=$(grep '^pr=' "$META" | tail -1 | cut -d= -f2- || true)
+PR_URL=
+RAW_PR_URL=$(grep '^pr=' "$META" | tail -1 | cut -d= -f2- || true)
+if fm_pr_metadata_identity_parse "$META"; then
+  PR_URL=$FM_PR_META_URL
+elif fm_pr_metadata_identity_parse_any "$META"; then
+  if [ "$TEARDOWN_META_KIND" != scout ] && [ "$FM_PR_META_OWNERSHIP" != rejected-scout-v1 ]; then
+    echo "REFUSED: PR ownership for $ID is not proven; append the current mode-valid PR-ready status and run fm-pr-check.sh before teardown" >&2
+    exit 1
+  fi
+elif [ -n "$RAW_PR_URL" ]; then
+  PR_URL=$RAW_PR_URL
+fi
 # tasktmp is recorded by fm-spawn for tasks that set up a per-task temp root
 # (/tmp/fm-<id>/); absent for tasks spawned before that change, so tolerate empty.
 TASK_TMP=$(grep '^tasktmp=' "$META" | cut -d= -f2- || true)
