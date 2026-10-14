@@ -308,7 +308,7 @@ test_promote_refuses_a_symlinked_task_record() {
 # prints against a capturing fm-send.sh, and asserts on the message the worker would
 # actually receive - for every supported mode.
 test_promotion_delivers_the_real_definition_of_done() {
-  local home meta out sendroot payload mode id brief_dod delivered_dod contract
+  local home meta out sendroot payload mode id brief_dod delivered_dod normalized_dod contract era
   home="$TMP_ROOT/promote-dod/home"
   sendroot="$TMP_ROOT/promote-dod/sendroot"
   mkdir -p "$home/state" "$sendroot/bin"
@@ -338,6 +338,7 @@ STUB
          eval "$(printf '%s\n' "$out" | sed -n 's/^next: //p' | grep 'fm-send\.sh')" ) \
       || fail "$mode: promotion's delivery command did not run"
     assert_present "$payload" "$mode: promotion delivered no message to the worker"
+    era=$(sed -n 's/^pr_ready_era=//p' "$meta" | tail -1)
 
     grep -qx "Delivery contract: mode=$mode" "$payload" \
       || fail "$mode: promoted worker did not receive the machine-readable delivery contract"
@@ -374,17 +375,33 @@ STUB
       fi
     done
 
-    # Compare the public outputs of both real generation paths. The promoted
-    # payload ends at its Definition of done, as does an ordinary generated
-    # brief, so identical suffixes prove both workers receive the same contract.
+    case "$mode" in
+      no-mistakes)
+        assert_grep "done [at=<epoch>] [era=$era]: PR {url} checks green" "$payload" \
+          "$mode: promoted ready template omitted the current era tag"
+        ;;
+      direct-PR)
+        assert_grep "done [at=<epoch>] [era=$era]: PR {url}" "$payload" \
+          "$mode: promoted ready template omitted the current era tag"
+        ;;
+      local-only)
+        assert_no_grep ' [era=' "$payload" \
+          "$mode: local-only promotion received a PR-ready era template"
+        ;;
+    esac
+
+    # Compare the public outputs of both real generation paths after removing
+    # the promoted task's concrete era tag.
     rm "$home/data/$id/brief.md"
     FM_HOME="$home" "$BRIEF" "$id" fixture-project --mode "$mode" >/dev/null 2>&1 \
       || fail "$mode: ordinary ship brief generation should succeed"
     brief_dod="$TMP_ROOT/promote-dod/brief-dod-$id"
     delivered_dod="$TMP_ROOT/promote-dod/delivered-dod-$id"
+    normalized_dod="$TMP_ROOT/promote-dod/normalized-dod-$id"
     awk '/^# Definition of done$/ { emit=1 } emit' "$home/data/$id/brief.md" > "$brief_dod"
     awk '/^# Definition of done$/ { emit=1 } emit' "$payload" > "$delivered_dod"
-    cmp -s "$brief_dod" "$delivered_dod" \
+    sed "s/ \[era=$era\]//" "$delivered_dod" > "$normalized_dod"
+    cmp -s "$brief_dod" "$normalized_dod" \
       || fail "$mode: promotion and ordinary brief generation delivered different Definitions of done"
   done
 
@@ -414,7 +431,78 @@ STUB
     "promoted local-only worker lost its no-remote contract"
   assert_no_grep "no-mistakes axi respond" "$TMP_ROOT/promote-dod/payload-promote-dod-direct-pr" \
     "promoted direct-PR worker received the pipeline gate contract"
-  pass "fm-promote: a promoted worker receives the same mode-specific delivery contract a briefed one does"
+  pass "fm-promote: a promoted worker receives the ordinary mode contract with its ready era"
+}
+
+test_promotion_recovers_interrupted_brief_publication() {
+  local home fakebin real_mv id meta out rc count
+  home="$TMP_ROOT/promote-interrupted/home"
+  fakebin="$TMP_ROOT/promote-interrupted/fakebin"
+  real_mv=$(command -v mv)
+  mkdir -p "$home/state" "$fakebin"
+  cat > "$fakebin/mv" <<'STUB'
+#!/bin/sh
+last=
+for arg do last=$arg; done
+if [ "$last" = "$FM_TEST_PROMOTION_META" ]; then
+  if [ "$FM_TEST_PROMOTION_CRASH" = before ]; then
+    kill -KILL "$PPID"
+    exit 137
+  fi
+  "$FM_TEST_REAL_MV" "$@" || exit $?
+  kill -TERM "$PPID"
+  exit 143
+fi
+exec "$FM_TEST_REAL_MV" "$@"
+STUB
+  chmod +x "$fakebin/mv"
+
+  id=promote-crash-before
+  meta="$home/state/$id.meta"
+  printf 'window=fm-%s\nkind=scout\nworktree=/tmp/wt\n' "$id" > "$meta"
+  FM_HOME="$home" "$BRIEF" "$id" fixture-project --scout >/dev/null 2>&1 \
+    || fail "pre-publication crash fixture brief should scaffold"
+  fill_brief_subsections "$home/data/$id/brief.md" \
+    "Recover the interrupted promotion." "Publish one coherent ship contract."
+  set +e
+  FM_TEST_PROMOTION_META="$meta" FM_TEST_PROMOTION_CRASH=before FM_TEST_REAL_MV="$real_mv" \
+    PATH="$fakebin:$PATH" FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
+    "$PROMOTE" "$id" --mode no-mistakes --yolo off > "$home/before.out" 2> "$home/before.err"
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "pre-publication crash fixture unexpectedly completed"
+  grep -qx 'kind=scout' "$meta" || fail "pre-publication crash crossed the role boundary"
+  compgen -G "$home/data/$id/.brief.md.scout.*" >/dev/null \
+    || fail "pre-publication crash left no durable brief backup"
+  out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
+    "$PROMOTE" "$id" --mode no-mistakes --yolo off 2>&1) \
+    || fail "promotion did not recover its pre-publication crash: $out"
+  grep -qx 'kind=ship' "$meta" || fail "recovered promotion did not publish the ship role"
+  count=$(grep -c '^# Current ship Firstmate spec$' "$home/data/$id/brief.md")
+  [ "$count" -eq 1 ] || fail "recovered promotion duplicated the ship contract"
+  ! compgen -G "$home/data/$id/.brief.md.scout.*" >/dev/null \
+    || fail "recovered promotion retained a stale brief backup"
+
+  id=promote-crash-after
+  meta="$home/state/$id.meta"
+  printf 'window=fm-%s\nkind=scout\nworktree=/tmp/wt\n' "$id" > "$meta"
+  FM_HOME="$home" "$BRIEF" "$id" fixture-project --scout >/dev/null 2>&1 \
+    || fail "post-publication interrupt fixture brief should scaffold"
+  fill_brief_subsections "$home/data/$id/brief.md" \
+    "Preserve the committed promotion." "Keep its ship contract after interruption."
+  set +e
+  FM_TEST_PROMOTION_META="$meta" FM_TEST_PROMOTION_CRASH=after FM_TEST_REAL_MV="$real_mv" \
+    PATH="$fakebin:$PATH" FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
+    "$PROMOTE" "$id" --mode no-mistakes --yolo off > "$home/after.out" 2> "$home/after.err"
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "post-publication interrupt fixture unexpectedly completed"
+  grep -qx 'kind=ship' "$meta" || fail "post-publication interrupt lost the committed ship role"
+  grep -q '^# Current ship Firstmate spec$' "$home/data/$id/brief.md" \
+    || fail "post-publication interrupt restored the scout brief over the ship record"
+  ! compgen -G "$home/data/$id/.brief.md.scout.*" >/dev/null \
+    || fail "post-publication interrupt retained a stale brief backup"
+  pass "fm-promote: interrupted brief publication reconciles to the committed task role"
 }
 
 test_promotion_persists_the_selected_ship_branch() {
@@ -1477,7 +1565,7 @@ EOF
 # binding, so promotion takes it from the registry with no flag to remember, and
 # refuses a flag that contradicts it.
 test_promotion_carries_the_forge_binding() {
-  local home sendroot meta out payload id
+  local home sendroot meta out payload id era
   home="$TMP_ROOT/forge-promote/home"
   sendroot="$TMP_ROOT/forge-promote/sendroot"
   mkdir -p "$home/state" "$home/data" "$home/projects/proj" "$sendroot/bin"
@@ -1504,6 +1592,7 @@ STUB
        eval "$(printf '%s\n' "$out" | sed -n 's/^next: //p' | grep 'fm-send\.sh')" ) \
     || fail "promotion's delivery command did not run"
   assert_present "$payload" "promotion delivered no message to the worker"
+  era=$(sed -n 's/^pr_ready_era=//p' "$meta" | tail -1)
   grep -qx "Delivery contract: mode=no-mistakes forge=gerrit shape=squash" "$payload" \
     || fail "the promoted worker did not receive the forge in its delivery contract"
   # shellcheck disable=SC2016 # Backticks are literal generated Markdown.
@@ -1513,15 +1602,19 @@ STUB
     "the promoted worker was not required to recover custody before publishing"
   assert_no_grep 'done [at=<epoch>]: PR {url} checks green' "$payload" \
     "the promoted worker was still told to report a PR with green checks"
+  assert_grep "done [at=<epoch>] [era=$era]: PR {change url} published for review" "$payload" \
+    "the promoted Gerrit ready template omitted the current era tag"
 
-  # Both real generation paths must end in the same contract, as they do for every
-  # mode: a promoted worker is never handed a weaker one than a briefed worker.
+  # The promoted contract must match the ordinary mode contract after removing
+  # the promoted task's concrete era tag.
   rm "$home/data/$id/brief.md"
   FM_HOME="$home" "$BRIEF" "$id" proj --mode no-mistakes --forge gerrit >/dev/null 2>&1 \
     || fail "ordinary gerrit ship brief generation should succeed"
   awk '/^# Definition of done$/ { emit=1 } emit' "$home/data/$id/brief.md" > "$TMP_ROOT/forge-promote/brief-dod"
   awk '/^# Definition of done$/ { emit=1 } emit' "$payload" > "$TMP_ROOT/forge-promote/delivered-dod"
-  cmp -s "$TMP_ROOT/forge-promote/brief-dod" "$TMP_ROOT/forge-promote/delivered-dod" \
+  sed "s/ \[era=$era\]//" \
+    "$TMP_ROOT/forge-promote/delivered-dod" > "$TMP_ROOT/forge-promote/normalized-dod"
+  cmp -s "$TMP_ROOT/forge-promote/brief-dod" "$TMP_ROOT/forge-promote/normalized-dod" \
     || fail "promotion and ordinary brief generation delivered different gerrit contracts"
   pass "fm-promote: a promoted worker receives the project's registered forge contract with no flag to remember"
 }
@@ -1531,7 +1624,7 @@ STUB
 # contract differs only in naming tea and keeping +yolo: a Forgejo pull request
 # is merged through the ordinary merge authority, not an attributed vote.
 test_forge_forgejo_rides_the_same_binding() {
-  local rec home proj fakebin out status sendroot meta payload id
+  local rec home proj fakebin out status sendroot meta payload id era
   rec=$(make_home forge-forgejo "- proj [direct-PR +yolo forge=forgejo] - fixture (added 2026-01-01)")
   IFS='|' read -r home proj fakebin <<EOF
 $rec
@@ -1574,8 +1667,11 @@ STUB
     || fail "promotion's delivery command did not run"
   grep -qx "Delivery contract: mode=direct-PR forge=forgejo" "$payload" \
     || fail "the promoted worker did not receive the forgejo delivery contract"
+  era=$(sed -n 's/^pr_ready_era=//p' "$meta" | tail -1)
   # shellcheck disable=SC2016 # Backticks are literal generated Markdown.
   assert_grep 'open a PR with `tea`' "$payload" "the promoted forgejo worker was not told to open the PR with tea"
+  assert_grep "done [at=<epoch>] [era=$era]: PR {url}" "$payload" \
+    "the promoted Forgejo ready template omitted the current era tag"
   pass "forge=forgejo: spawn agreement and promotion carry the binding, name tea, and keep yolo"
 }
 
@@ -1691,6 +1787,7 @@ test_scout_records_no_delivery_posture
 test_promote_requires_and_records_the_delivery_contract
 test_promote_refuses_a_symlinked_task_record
 test_promotion_delivers_the_real_definition_of_done
+test_promotion_recovers_interrupted_brief_publication
 test_promotion_persists_the_selected_ship_branch
 test_promotion_branch_command_is_shell_safe
 test_local_merge_uses_the_recorded_ship_branch

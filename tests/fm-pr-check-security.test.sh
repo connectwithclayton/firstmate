@@ -1051,6 +1051,61 @@ test_only_latest_ready_status_can_register() {
   pass "only the latest mode-valid ready status can register a new PR"
 }
 
+test_concurrent_registration_revalidates_latest_ready_status() {
+  local dir state url_a url_b pid i rc
+  dir=$(make_case concurrent-latest-ready-status)
+  state="$dir/home/state"
+  url_a=https://github.com/o/r/pull/93
+  url_b=https://github.com/o/r/pull/94
+  write_task_meta "$dir" task-a direct-PR
+  cp "$dir/fakebin/gh" "$dir/fakebin/gh-real"
+  cat > "$dir/fakebin/gh" <<'SH'
+#!/bin/sh
+if [ "${FM_TEST_BLOCK_GH:-0}" = 1 ]; then
+  : > "$FM_TEST_GH_GATE"
+  i=0
+  while [ ! -e "$FM_TEST_GH_RELEASE" ]; do
+    i=$((i + 1))
+    [ "$i" -le 500 ] || exit 97
+    sleep 0.01
+  done
+fi
+exec "$(dirname "$0")/gh-real" "$@"
+SH
+  chmod +x "$dir/fakebin/gh"
+  printf 'done: PR %s\n' "$url_a" > "$state/task-a.status"
+  ( set +e
+    FM_TEST_BLOCK_GH=1 FM_TEST_GH_GATE="$dir/a-gate" FM_TEST_GH_RELEASE="$dir/a-release" \
+      run_check_entry_unprepared "$dir" task-a "$url_a" > "$dir/a.out" 2> "$dir/a.err"
+    printf '%s\n' "$?" > "$dir/a.rc"
+  ) &
+  pid=$!
+  i=0
+  while [ ! -e "$dir/a-gate" ]; do
+    i=$((i + 1))
+    if [ "$i" -gt 500 ]; then
+      kill "$pid" 2>/dev/null || true
+      wait "$pid" 2>/dev/null || true
+      fail "first registration never reached its pre-publication forge read"
+    fi
+    sleep 0.01
+  done
+  printf 'done: PR %s\n' "$url_b" >> "$state/task-a.status"
+  run_check_entry_unprepared "$dir" task-a "$url_b" > "$dir/b.out" 2> "$dir/b.err" \
+    || fail "new latest ready PR did not register while the older request was delayed: $(cat "$dir/b.err")"
+  : > "$dir/a-release"
+  wait "$pid"
+  rc=$(cat "$dir/a.rc")
+  [ "$rc" -ne 0 ] || fail "delayed older registration overwrote the latest PR"
+  grep -qxF "pr=$url_b" "$state/task-a.meta" \
+    || fail "delayed older registration changed canonical ownership"
+  fm_pr_poll_snapshot_capture "$state" task-a "$POLL" \
+    || fail "latest concurrent registration lost its authenticated poll"
+  [ "$FM_PR_POLL_SNAPSHOT_URL" = "$url_b" ] \
+    || fail "delayed older registration changed the authenticated poll identity"
+  pass "concurrent registration revalidates latest-ready provenance under the metadata lock"
+}
+
 # With no forge-reported head (gh cannot supply one), the named head is the
 # worker copy's HEAD, and a HEAD that exists only there is refused.
 test_unpushed_named_head_refuses_registration() {
@@ -4360,6 +4415,7 @@ test_scout_status_pr_mention_does_not_register
 test_promoted_ship_uses_only_post_promotion_ready_evidence
 test_supported_ready_status_variants_register
 test_only_latest_ready_status_can_register
+test_concurrent_registration_revalidates_latest_ready_status
 test_unpushed_named_head_refuses_registration
 test_direct_pr_unpushed_commit_refuses_registration
 test_valid_recording_and_merge_derivation

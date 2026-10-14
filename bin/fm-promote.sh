@@ -9,9 +9,9 @@
 # scratch-state inventory, the clean
 # default-branch base, the immutable ship branch, and - rendered from
 # bin/fm-dod-lib.sh, the single owner an ordinary ship brief also uses - the
-# mode-specific Definition of done, so a promoted worker receives exactly the same
-# delivery contract as a briefed one, including the no-mistakes mode's ask-user
-# escalation rule and --yes ban. The instructions also carry `# Task` with
+# mode-specific Definition of done, so a promoted worker receives the same mode
+# contract as a briefed one plus its task-specific ready-era tag, including the
+# no-mistakes mode's ask-user escalation rule and --yes ban. The instructions also carry `# Task` with
 # `## Captain's intent` preserved from the scout brief and promotion's ship-time
 # instructions under `## Firstmate spec`; the scout-time spec remains context but
 # is not relabeled as the ship spec. Promotion refuses leftover `{TASK}` /
@@ -177,13 +177,36 @@ SCOUT_BRIEF=
 BRIEF_ORIGINAL=
 BRIEF_REPLACEMENT=
 PROMOTION_READY_ERA=
+promote_reconcile_brief_state() {
+  local kind backup restore_nullglob=0
+  local -a backups=()
+  [ -n "$META" ] && [ -f "$META" ] && [ ! -L "$META" ] || return 1
+  kind=$(sed -n 's/^kind=//p' "$META" | tail -1) || return 1
+  shopt -q nullglob || { shopt -s nullglob; restore_nullglob=1; }
+  backups=("$DATA/$ID"/.brief.md.scout.*)
+  [ "$restore_nullglob" -eq 0 ] || shopt -u nullglob
+  [ "${#backups[@]}" -le 1 ] || return 1
+  backup=${backups[0]:-}
+  case "$kind" in
+    scout)
+      if [ -n "$backup" ]; then
+        [ -f "$backup" ] && [ ! -L "$backup" ] \
+          && [ "$(fm_pr_file_link_count "$backup")" = 1 ] || return 1
+        mv -f -- "$backup" "$DATA/$ID/brief.md" || return 1
+      fi
+      rm -f -- "$DATA/$ID/ship-instructions.md" || return 1
+      ;;
+    ship)
+      [ -z "$backup" ] || rm -f -- "$backup" || return 1
+      ;;
+    *) return 1 ;;
+  esac
+}
 promote_cleanup() {
   local status=$?
   [ -z "$TMP" ] || rm -f -- "$TMP" 2>/dev/null || true
   [ -z "$BRIEF_REPLACEMENT" ] || rm -f -- "$BRIEF_REPLACEMENT" 2>/dev/null || true
-  if [ -n "$BRIEF_ORIGINAL" ] && [ -e "$BRIEF_ORIGINAL" ]; then
-    mv -f -- "$BRIEF_ORIGINAL" "$SCOUT_BRIEF" 2>/dev/null || true
-  fi
+  [ "$META_LOCK_HELD" = 0 ] || promote_reconcile_brief_state 2>/dev/null || true
   if [ "$META_LOCK_HELD" = 1 ]; then
     META_LOCK_HELD=0
     fm_lock_release "$META_LOCK" || true
@@ -210,6 +233,10 @@ if ! fm_backlog_record_present "$META" "task record" "$STATE"; then
   echo "error: task record for $ID is unsafe or missing ($FM_BACKLOG_TRANSITION_ERROR)" >&2
   exit 1
 fi
+promote_reconcile_brief_state || {
+  echo "error: task $ID has ambiguous interrupted promotion state" >&2
+  exit 1
+}
 grep -qx 'kind=scout' "$META" || { echo "error: task $ID is not a scout task (kind=scout not in meta)" >&2; exit 1; }
 SCOUT_PR_RESIDUE=
 if grep -qE '^(pr|pr_head)=' "$META"; then
@@ -295,11 +322,23 @@ if [ -z "$(printf '%s' "$INTENT_BODY" | tr -d '[:space:]')" ]; then
   exit 1
 fi
 
-# The promoted worker must receive the same delivery contract an ordinary ship
-# brief carries, so the mode-specific Definition of done is rendered from its
-# single owner (bin/fm-dod-lib.sh) rather than summarised into a hint line. A
+# The promoted worker must receive the ordinary mode contract plus its concrete
+# promotion-era tag, so the mode-specific Definition of done is rendered from
+# its single owner (bin/fm-dod-lib.sh) rather than summarised into a hint line. A
 # promoted no-mistakes worker that never received the ask-user escalation rule or
 # the --yes ban is the delivery hole this file used to leave open.
+STATUS="$STATE/$ID.status"
+if [ -e "$STATUS" ] || [ -L "$STATUS" ]; then
+  [ -f "$STATUS" ] && [ ! -L "$STATUS" ] \
+    && [ "$(fm_pr_file_link_count "$STATUS")" = 1 ] || {
+      echo "error: task status is unsafe: $STATUS" >&2
+      exit 1
+    }
+fi
+PROMOTION_READY_ERA=$(fm_pr_ready_era_new) || {
+  echo "error: task PR-ready promotion era could not be generated" >&2
+  exit 1
+}
 INSTRUCTIONS="$DATA/$ID/ship-instructions.md"
 PROMOTION_ASK_USER_BLOCK=
 if [ "$MODE" = no-mistakes ]; then
@@ -316,6 +355,7 @@ If these promotion steps were already completed before a relaunch, preserve the 
 7. Everything else in your original instructions carries over unchanged: the status protocol; the instruction inbox and its acknowledgement; the escalation rules, including ask-user; and every safety rule, except where the current delivery contract below explicitly replaces scout-only delivery rules.
 EOF
 promote_delivery_contract() {
+  local ready_status_tag=
   cat <<EOF
 # Current delivery mode contract
 This task is now kind=ship with mode=$MODE$PROMOTE_FORGE_WORDS$PROMOTE_CONSENT_WORDS.
@@ -342,7 +382,8 @@ For this promoted task, every PR-ready \`done\` line must read \`pr_ready_era=\`
 EOF
   fi
   printf '\n'
-  fm_dod_block "$MODE" "$ID" "$BRANCH" "$FORGE" "$BASE_BRANCH" "$UPSTREAM_CONSENT"
+  [ "$MODE" = local-only ] || ready_status_tag=" [era=$PROMOTION_READY_ERA]"
+  fm_dod_block "$MODE" "$ID" "$BRANCH" "$FORGE" "$BASE_BRANCH" "$UPSTREAM_CONSENT" "$ready_status_tag"
 }
 FM_HOME="$FM_HOME" FM_ROOT_OVERRIDE="$FM_ROOT" FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" \
   "$SCRIPT_DIR/fm-contributions.sh" migrate-ownership "$ID" || exit 1
@@ -396,19 +437,6 @@ if ! mv "$BRIEF_REPLACEMENT" "$SCOUT_BRIEF"; then
 fi
 BRIEF_REPLACEMENT=
 
-STATUS="$STATE/$ID.status"
-if [ -e "$STATUS" ] || [ -L "$STATUS" ]; then
-  [ -f "$STATUS" ] && [ ! -L "$STATUS" ] \
-    && [ "$(fm_pr_file_link_count "$STATUS")" = 1 ] || {
-      echo "error: task status is unsafe: $STATUS" >&2
-      exit 1
-    }
-fi
-PROMOTION_READY_ERA=$(fm_pr_ready_era_new) || {
-  echo "error: task PR-ready promotion era could not be generated" >&2
-  exit 1
-}
-
 TMP="$STATE/.$ID.meta.promote.${BASHPID:-$$}"
 grep -v -e '^kind=' -e '^mode=' -e '^yolo=' -e '^branch=' \
   -e '^upstream_consent=' -e '^pr_ready_after_line=' -e '^pr_ready_era=' "$META" > "$TMP"
@@ -427,7 +455,10 @@ if ! fm_backlog_atomic_transition publish "$TMP" "$META" "task record" "$STATE";
   exit 1
 fi
 TMP=
-rm -f -- "$BRIEF_ORIGINAL" 2>/dev/null || true
+promote_reconcile_brief_state || {
+  echo "error: promoted task $ID could not finalize its brief state" >&2
+  exit 1
+}
 BRIEF_ORIGINAL=
 fm_lock_release "$META_LOCK"
 META_LOCK_HELD=0
