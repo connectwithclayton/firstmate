@@ -1076,6 +1076,51 @@ test_stale_self_claim_retires_only_after_verified_secondmate_lease() {
   pass "fm-teardown: verified durable secondmate ownership permits only stale-record retirement"
 }
 
+test_stale_self_claim_retires_when_historical_backlog_row_is_absent() {
+  local dir id=stale-task other=orbit-mate slot marker_before backlog_before worker
+  dir=$(make_case stale-self-claim-missing-backlog-row)
+  mark_case_as_treehouse_pool "$dir"
+  slot=$(cd "$dir/pool/1/project" && pwd -P)
+  git -C "$slot" add sentinel
+  git -C "$slot" -c user.name=test -c user.email=test@example.invalid commit -qm secondmate-files
+  fm_write_meta "$dir/home/state/$id.meta" \
+    "window=firstmate:fm-$id" "endpoint_task_id=$id" "spawn_gen=1" \
+    "worktree=$dir/worktree" "project=$dir/project" "kind=ship"
+  fm_write_meta "$dir/home/state/$other.meta" \
+    "kind=secondmate" "home=$slot" "worktree=$slot" "project=$dir/project"
+  printf '%s\n' "- $other - fixture (home: $slot; scope: test; projects: project; added 2026-01-01)" \
+    > "$dir/home/data/secondmates.md"
+  printf '%s\n' '# Backlog' '' '## In flight' '' '## Queued' '' '## Done' \
+    > "$dir/home/data/backlog.md"
+  claim_pool_slot "$dir" "$id" "$dir/home"
+  marker_before=$(cat "$dir/pool/1/.fm-slot-owner")
+  backlog_before=$(cksum "$dir/home/data/backlog.md")
+  printf '[{"name":"1","path":"%s","status":"leased","lease_id":"fixture-lease","lease_holder":"%s"}]\n' \
+    "$slot" "$other" > "$dir/treehouse-status.json"
+  ( cd "$slot" && exec sleep 30 ) &
+  worker=$!
+
+  run_case_without_force "$dir" "$id" > "$dir/stdout" 2> "$dir/stderr" \
+    || fail "absent historical backlog row blocked records-only retirement: $(cat "$dir/stderr")"
+  assert_absent "$dir/home/state/$id.meta" "absent-row records-only cleanup left the stale task record"
+  assert_absent "$dir/home/state/$id.backlog-close" "absent historical backlog row left a pending-close record"
+  assert_present "$dir/home/state/$other.meta" "absent-row cleanup removed the secondmate record"
+  assert_present "$dir/pool/1/.fm-slot-owner" "absent-row cleanup removed the stale owner marker"
+  [ "$(cat "$dir/pool/1/.fm-slot-owner")" = "$marker_before" ] \
+    || fail "absent-row cleanup changed the slot owner marker"
+  [ "$(cksum "$dir/home/data/backlog.md")" = "$backlog_before" ] \
+    || fail "absent-row cleanup mutated the backlog that lacked the historical id"
+  assert_present "$dir/pool/1/project/.git" "absent-row cleanup removed the secondmate checkout"
+  assert_present "$dir/worktree/sentinel" "absent-row cleanup changed the secondmate files"
+  kill -0 "$worker" 2>/dev/null || fail "absent-row cleanup killed the secondmate process"
+  ! grep -Fq "treehouse <return>" "$dir/runtime.log" \
+    || fail "absent-row cleanup returned the leased secondmate slot: $(cat "$dir/runtime.log")"
+  kill "$worker" 2>/dev/null || true
+  wait "$worker" 2>/dev/null || true
+
+  pass "fm-teardown: records-only retirement completes when the historical backlog row is already absent"
+}
+
 test_cross_home_secondmate_lease_retires_stale_record_without_backlog_row() {
   local dir id=stale-task other=orbit-mate slot root marker_before record_before worker rc
   dir=$(make_case cross-home-secondmate-lease-missing-backlog)
@@ -1601,6 +1646,7 @@ test_sole_slot_record_still_tears_down
 test_reassigned_pool_slot_finishes_own_cleanup_without_touching_the_slot
 test_stale_record_on_claimed_slot_retires_then_claimant_tears_down
 test_stale_self_claim_retires_only_after_verified_secondmate_lease
+test_stale_self_claim_retires_when_historical_backlog_row_is_absent
 test_cross_home_secondmate_lease_retires_stale_record_without_backlog_row
 test_uncertain_secondmate_lease_evidence_still_refuses
 test_own_and_absent_slot_claims_still_tear_down

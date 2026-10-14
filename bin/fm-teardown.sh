@@ -3640,6 +3640,17 @@ BACKLOG_TRANSITION=$TEARDOWN_BACKLOG_TRANSITION
 BACKLOG_TRANSITION_FLAGS=()
 [ "$BACKLOG_TRANSITION" = close ] || BACKLOG_TRANSITION_FLAGS=(--retain)
 BACKLOG_SKIP_REASON=
+if [ "$TEARDOWN_BACKLOG_APPLIES" = 1 ] && [ "$TEARDOWN_SLOT_REASSIGNED" = 1 ]; then
+  if ! fm_backlog_row_probe "$DATA" "$ID"; then
+    if [ "$FM_BACKLOG_ROW_RESULT" = not_found ]; then
+      TEARDOWN_BACKLOG_APPLIES=0
+      TEARDOWN_BACKLOG_SKIP_REASON="historical backlog item $ID is already absent"
+    else
+      echo "error: task $ID cannot be torn down because its backlog item could not be read ($FM_BACKLOG_ROW_ERROR); nothing was changed" >&2
+      exit 1
+    fi
+  fi
+fi
 if [ "$TEARDOWN_BACKLOG_APPLIES" = 1 ]; then
   backlog_done_args || {
     echo "error: the pending backlog $BACKLOG_TRANSITION for $ID is not replayable; refusing destructive teardown" >&2
