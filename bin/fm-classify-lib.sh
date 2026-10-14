@@ -784,7 +784,7 @@ status_latest_ready_pr_url() {  # [<delivery-mode>] [<first-eligible-line>] [<re
       [ "$era" = "$required_era" ] || continue
     fi
     status_line_verb "$line" verb
-    [ "$verb" = done ] || continue
+    [ "$verb" = "done" ] || continue
     note=$(status_line_note "$line")
     url=$(status_pr_url_from_done_note "$note") || continue
     fm_pr_url_parse "$url" || continue

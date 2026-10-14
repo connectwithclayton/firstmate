@@ -409,7 +409,7 @@ fm_pr_ready_era_new() {
 }
 
 fm_pr_ready_after_read() {  # <meta-file>
-  local file=$1 line era= era_count=0
+  local file=$1 line era='' era_count=0
   FM_PR_READY_ERA=
   FM_PR_READY_BOUNDARY_PRESENT=0
   [ -f "$file" ] && [ ! -L "$file" ] || return 1
@@ -1060,7 +1060,7 @@ fm_pr_rejected_metadata_identity_cleared() {
 }
 
 fm_pr_rejected_metadata_identity_clear() {
-  local state=$1 id=$2 url=$3 meta lock state_device tmp= line failed=0 kind ownership
+  local state=$1 id=$2 url=$3 meta lock state_device tmp='' line failed=0 kind ownership
   fm_pr_task_id_valid "$id" || return 1
   meta="$state/$id.meta"
   lock=$(fm_meta_lock_path "$meta") || return 1

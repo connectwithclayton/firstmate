@@ -61,7 +61,7 @@ fi
 
 STATUS="$STATE/$ID.status"
 pr_check_validate_provenance() {
-  local registered_url= registered_ownership= rejected_url ready_era boundary_present ready_url=
+  local registered_url='' registered_ownership='' rejected_url ready_era boundary_present ready_url=''
   KIND=$(grep '^kind=' "$META" | tail -1 | cut -d= -f2- || true)
   MODE=$(grep '^mode=' "$META" | tail -1 | cut -d= -f2- || true)
   if [ "$KIND" = secondmate ]; then

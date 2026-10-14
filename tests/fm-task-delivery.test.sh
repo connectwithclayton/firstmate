@@ -368,9 +368,9 @@ STUB
       assert_grep "Leave the worktree clean before reporting done." "$contract" \
         "$mode: $contract omitted the clean-before-done rule"
       if [ "$mode" != local-only ]; then
-        assert_grep 'every PR-ready `done` line must read `pr_ready_era=`' "$contract" \
+        assert_grep "every PR-ready \`done\` line must read \`pr_ready_era=\`" "$contract" \
           "$mode: $contract omitted the promoted PR-ready era source"
-        assert_grep 'include `[era=<that exact value>]` before the colon' "$contract" \
+        assert_grep "include \`[era=<that exact value>]\` before the colon" "$contract" \
           "$mode: $contract omitted the promoted PR-ready era status shape"
       fi
     done
