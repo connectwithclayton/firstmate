@@ -2757,8 +2757,10 @@ reconcile_pr_poll_ownership() {  # <id> <provider> <url> <host> <path> <number>
     return 0
   fi
   contribution_ownership=
-  contribution_ownership=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
-    "$SCRIPT_DIR/fm-contributions.sh" ownership "$id" "$url" 2>/dev/null) || return 1
+  if ! contribution_ownership=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
+    "$SCRIPT_DIR/fm-contributions.sh" ownership "$id" "$url" 2>/dev/null); then
+    contribution_ownership=
+  fi
   if [ "$contribution_ownership" = owned ]; then
     fm_pr_metadata_ownership_set "$STATE" "$id" "$url" proven-contribution-v1 || return 1
     return 0

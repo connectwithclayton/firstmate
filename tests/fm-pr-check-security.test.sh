@@ -3054,6 +3054,44 @@ test_promoted_legacy_poll_ownership_is_reconciled_before_execution() {
   pass "promoted legacy PR ownership is proven, rejected, or quarantined before monitoring"
 }
 
+test_unavailable_contribution_ownership_is_quarantined() {
+  local dir state url rc
+  url=https://github.com/o/r/pull/95
+  dir=$(make_case promoted-legacy-pr-contribution-unavailable)
+  state="$dir/home/state"
+  fm_write_meta "$state/task-a.meta" \
+    'window=session:fm-task-a' \
+    "worktree=$dir/wt" \
+    "project=$dir/project" \
+    'kind=ship' \
+    'mode=no-mistakes' \
+    'backend=tmux' \
+    'pr_ready_after_line=1' \
+    "pr=$url"
+  printf 'done: PR %s checks green\n' "$url" > "$state/task-a.status"
+  mkdir -p "$dir/home/data/task-a"
+  printf '%s\n' '{"schema":"fm-contributions.v1","task":"task-a","records":[{"url":"https://github.com/o/r/pull/95","kind":"pr","pending":[],"seen":[],"notified":[],"error":null,"checked_at":null,"retired":null,"verdict":null,"observation":null}]}' \
+    > "$dir/home/data/task-a/contributions.json"
+  seed_canonical_poll "$dir" task-a "$url"
+  add_stop_custom_check "$dir"
+  : > "$dir/gh.log"
+  printf '#!/bin/sh\nexit 127\n' > "$dir/fakebin/jq"
+  chmod 0700 "$dir/fakebin/jq"
+  set +e
+  FM_TEST_GH_LOG="$dir/gh.log" FM_TEST_GH_STATE=MERGED \
+    run_watcher_bounded "$dir/home" "$dir/fakebin" > "$dir/watch.out" 2> "$dir/watch.err"
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || fail "unavailable contribution ownership watcher failed: $(cat "$dir/watch.err")"
+  assert_poll_absent "$state" task-a
+  [ ! -s "$dir/gh.log" ] || fail "unverified ownership queried the forge"
+  grep -qx 'pr_ownership=quarantined-legacy-v1' "$state/task-a.meta" \
+    || fail "unavailable contribution ownership was not durably quarantined"
+  grep -qF 'quarantined legacy PR ownership' "$state/.wake-queue" \
+    || fail "unavailable contribution ownership did not publish reconciliation guidance"
+  pass "unavailable contribution ownership is quarantined with guidance"
+}
+
 test_scout_metadata_cleanup_recovers_without_poll_artifacts() {
   local dir state legacy state_legacy rc suffix
   dir=$(make_case scout-metadata-recovery)
@@ -4223,6 +4261,7 @@ test_different_merged_pr_for_same_task_is_not_absorbed
 test_persistent_secondmate_retirement_is_poll_only
 test_scout_poll_residue_is_retired_before_execution
 test_promoted_legacy_poll_ownership_is_reconciled_before_execution
+test_unavailable_contribution_ownership_is_quarantined
 test_scout_metadata_cleanup_recovers_without_poll_artifacts
 test_scout_cleanup_skips_unrelated_control_locks
 test_scout_metadata_cleanup_retires_partial_poll

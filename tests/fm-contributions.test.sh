@@ -458,7 +458,10 @@ test_ready_issue_wake() {
   local home count
   home=$(new_home ready)
   forge_home "$home"
-  printf -- '- [ ] filed - Measured defect https://github.com/o/r/issues/9 (repo: sample) (kind: ship)\n' >> "$home/data/backlog.md"
+  printf -- '- [ ] filed - Measured defect https://github.com/o/r/issues/9 (repo: sample) (kind: scout)\n' >> "$home/data/backlog.md"
+  fm_write_meta "$home/state/filed.meta" \
+    "worktree=$home/wt" \
+    'kind=scout'
   with_home "$home" "$ROOT/bin/fm-pr-check.sh" delivery https://github.com/o/r/pull/8 >/dev/null \
     || fail 'could not register delivery'
   registered_checks "$home" >/dev/null

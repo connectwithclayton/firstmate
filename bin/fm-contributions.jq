@@ -82,7 +82,7 @@ def known($input; $saved):
    + [($input.backlog.records // [])[] | select(.structured == true) as $task
       | ($task.links // [])[] | select(canonical_url) as $url
       | select(($url | pull_request_url | not) or $task.kind == "ship")
-      | select(live_scout_identity($input; $task.id) | not)
+      | select(($url | pull_request_url | not) or (live_scout_identity($input; $task.id) | not))
       | {task:$task.id,url:$url}
         + (if ($url | pull_request_url) then
              {ownership:{state:"owned",kind:"ship",source:"backlog-link"}}
