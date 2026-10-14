@@ -256,11 +256,14 @@ test_fixture_snapshot_json() {
 }
 
 test_scout_pr_mention_is_not_an_artifact() {
-  local home fakebin url out view scout_row ship_row
+  local home fakebin url gerrit_url out view scout_row ship_row
   home=$(make_home scout-pr-mention)
   fakebin=$(make_fakebin "$home")
   url=https://github.com/o/r/pull/91
-  mkdir -p "$home/data/scout-mentioned" "$home/projects/scout" "$home/projects/stale" "$home/projects/ship"
+  gerrit_url=https://gerrit.example/c/o/r/+/91
+  mkdir -p "$home/data/scout-mentioned" "$home/projects/scout" "$home/projects/stale" \
+    "$home/projects/ship" "$home/projects/unready" "$home/projects/direct" \
+    "$home/projects/gerrit-ready" "$home/projects/gerrit-wrong"
   printf '# Scout report\n' > "$home/data/scout-mentioned/report.md"
   fm_write_meta "$home/state/scout-mentioned.meta" \
     'window=firstmate:fm-scout-mentioned' \
@@ -287,10 +290,42 @@ test_scout_pr_mention_is_not_an_artifact() {
     'harness=codex' \
     'kind=ship' \
     'mode=no-mistakes'
-  printf 'done: PR %s\n' "$url" > "$home/state/ship-ready.status"
+  printf 'done: PR %s checks green\n' "$url" > "$home/state/ship-ready.status"
+  fm_write_meta "$home/state/ship-unready.meta" \
+    'window=firstmate:fm-ship-unready' \
+    "worktree=$home/projects/unready" \
+    'project=alpha' \
+    'harness=codex' \
+    'kind=ship' \
+    'mode=no-mistakes'
+  printf 'done: PR %s\n' "$url" > "$home/state/ship-unready.status"
+  fm_write_meta "$home/state/ship-direct.meta" \
+    'window=firstmate:fm-ship-direct' \
+    "worktree=$home/projects/direct" \
+    'project=alpha' \
+    'harness=codex' \
+    'kind=ship' \
+    'mode=direct-PR'
+  printf 'done: PR %s\n' "$url" > "$home/state/ship-direct.status"
+  fm_write_meta "$home/state/gerrit-ready.meta" \
+    'window=firstmate:fm-gerrit-ready' \
+    "worktree=$home/projects/gerrit-ready" \
+    'project=alpha' \
+    'harness=codex' \
+    'kind=ship' \
+    'mode=no-mistakes'
+  printf 'done: PR %s published for review\n' "$gerrit_url" > "$home/state/gerrit-ready.status"
+  fm_write_meta "$home/state/gerrit-wrong.meta" \
+    'window=firstmate:fm-gerrit-wrong' \
+    "worktree=$home/projects/gerrit-wrong" \
+    'project=alpha' \
+    'harness=codex' \
+    'kind=ship' \
+    'mode=no-mistakes'
+  printf 'done: PR %s checks green\n' "$gerrit_url" > "$home/state/gerrit-wrong.status"
 
   out=$(PATH="$fakebin:$PATH" FM_HOME="$home" "$SNAPSHOT" --json)
-  printf '%s' "$out" | jq -e --arg url "$url" '
+  printf '%s' "$out" | jq -e --arg url "$url" --arg gerrit_url "$gerrit_url" '
     (.tasks[] | select(.id == "scout-mentioned")
       | .pr == {url:null,source:"absent",head:null}
         and .paths.status_log.last_event.raw == ("paused: awaiting review of " + $url))
@@ -300,7 +335,20 @@ test_scout_pr_mention_is_not_an_artifact() {
       and
     (.tasks[] | select(.id == "ship-ready")
       | .pr.url == $url and .pr.source == "status_event")
-  ' >/dev/null || fail "snapshot attributed a mentioned PR to a scout or lost ship status discovery: $out"
+      and
+    (.tasks[] | select(.id == "ship-unready")
+      | .pr == {url:null,source:"absent",head:null})
+      and
+    (.tasks[] | select(.id == "ship-direct")
+      | .pr.url == $url and .pr.source == "status_event")
+      and
+    (.tasks[] | select(.id == "gerrit-ready")
+      | .pr.url == $gerrit_url and .pr.source == "status_event")
+      and
+    (.tasks[] | select(.id == "gerrit-wrong")
+      | .pr == {url:null,source:"absent",head:null})
+  ' >/dev/null \
+    || fail "snapshot attributed a PR without delivery-mode/provider evidence: $out"
 
   view=$(PATH="$fakebin:$PATH" FM_HOME="$home" "$VIEW")
   scout_row=$(printf '%s\n' "$view" | grep '^| scout-mentioned |')
@@ -311,7 +359,7 @@ test_scout_pr_mention_is_not_an_artifact() {
     "fleet view must not render a PR merely mentioned by a scout"
   assert_contains "$ship_row" "$url" \
     "fleet view must preserve a delivery lane's status-derived PR artifact"
-  pass "scout PR mentions stay historical prose, not canonical artifacts"
+  pass "PR artifacts require the task mode and provider's ready contract"
 }
 
 # R1 owner contract: main_inventory discloses orphan in-flight and unstructured

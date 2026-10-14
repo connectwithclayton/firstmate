@@ -277,14 +277,14 @@ SH
 }
 
 write_task_meta() {
-  local dir=$1 id=${2:-task-a}
+  local dir=$1 id=${2:-task-a} mode=${3:-no-mistakes}
   fm_write_meta "$dir/home/state/$id.meta" \
     "window=firstmate:fm-$id" \
     "endpoint_task_id=$id" \
     "worktree=$dir/wt" \
     "project=$dir/project" \
     "kind=ship" \
-    "mode=no-mistakes"
+    "mode=$mode"
 }
 
 # Extra "field=value" arguments are written before pr=, because
@@ -816,19 +816,21 @@ test_scout_status_pr_mention_does_not_register() {
 }
 
 test_supported_ready_status_variants_register() {
-  local spec name line dir url
+  local spec name mode rest line dir url rc
   url=https://github.com/o/r/pull/92
   for spec in \
-    'key-before|done [key=fix]: PR https://github.com/o/r/pull/92 checks green' \
-    'key-after|done: [key=fix] PR https://github.com/o/r/pull/92' \
-    'ready-suffix|done: PR https://github.com/o/r/pull/92 checks green, risk low' \
-    'ready-dash|done: PR https://github.com/o/r/pull/92 - checks green' \
-    'ready-period|done: PR https://github.com/o/r/pull/92 checks green.' \
-    'ready-parentheses|done: PR https://github.com/o/r/pull/92 (checks green)'; do
+    'key-before|no-mistakes|done [key=fix]: PR https://github.com/o/r/pull/92 checks green' \
+    'key-after|direct-PR|done: [key=fix] PR https://github.com/o/r/pull/92' \
+    'ready-suffix|no-mistakes|done: PR https://github.com/o/r/pull/92 checks green, risk low' \
+    'ready-dash|no-mistakes|done: PR https://github.com/o/r/pull/92 - checks green' \
+    'ready-period|no-mistakes|done: PR https://github.com/o/r/pull/92 checks green.' \
+    'ready-parentheses|no-mistakes|done: PR https://github.com/o/r/pull/92 (checks green)'; do
     name=${spec%%|*}
-    line=${spec#*|}
+    rest=${spec#*|}
+    mode=${rest%%|*}
+    line=${rest#*|}
     dir=$(make_case "ready-status-$name")
-    write_task_meta "$dir"
+    write_task_meta "$dir" task-a "$mode"
     printf '%s\n' "$line" > "$dir/home/state/task-a.status"
     run_check_entry_unprepared "$dir" task-a "$url" > "$dir/stdout" 2> "$dir/stderr" \
       || fail "supported ready status did not authorize registration: $line: $(cat "$dir/stderr")"
@@ -837,7 +839,32 @@ test_supported_ready_status_variants_register() {
     fm_pr_poll_artifacts_valid "$dir/home/state" task-a "$POLL" \
       || fail "supported ready status did not publish an authenticated poll: $line"
   done
-  pass "supported keyed and suffixed ready statuses authorize registration"
+
+  for spec in \
+    'no-mistakes-bare|no-mistakes|done: PR https://github.com/o/r/pull/92' \
+    'direct-pr-ci|direct-PR|done: PR https://github.com/o/r/pull/92 checks green' \
+    'gerrit-checks|no-mistakes|done: PR https://gerrit.example/c/o/r/+/92 checks green'; do
+    name=${spec%%|*}
+    rest=${spec#*|}
+    mode=${rest%%|*}
+    line=${rest#*|}
+    dir=$(make_case "wrong-ready-status-$name")
+    write_task_meta "$dir" task-a "$mode"
+    printf '%s\n' "$line" > "$dir/home/state/task-a.status"
+    case "$name" in gerrit-*) url=https://gerrit.example/c/o/r/+/92 ;; *) url=https://github.com/o/r/pull/92 ;; esac
+    set +e
+    run_check_entry_unprepared "$dir" task-a "$url" > "$dir/stdout" 2> "$dir/stderr"
+    rc=$?
+    set -e
+    [ "$rc" -ne 0 ] || fail "wrong delivery-mode status authorized registration: $line"
+    grep -qi 'PR-ready status' "$dir/stderr" \
+      || fail "wrong delivery-mode refusal did not name missing evidence: $(cat "$dir/stderr")"
+    ! grep -q '^pr=' "$dir/home/state/task-a.meta" \
+      || fail "wrong delivery-mode status recorded ownership: $line"
+    [ ! -e "$dir/home/state/task-a.check.sh" ] \
+      || fail "wrong delivery-mode status armed monitoring: $line"
+  done
+  pass "ready statuses follow normalized delivery-mode and provider contracts"
 }
 
 # With no forge-reported head (gh cannot supply one), the named head is the
@@ -973,7 +1000,7 @@ SH
       "worktree=$dir/wt" \
       "project=$dir/project" \
       'kind=ship' \
-      'mode=local-only'
+      'mode=direct-PR'
     cat > "$dir/fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 exit 0
@@ -3247,7 +3274,7 @@ test_retirement_queue_failure_and_receipt_tampering() {
     && fail "malformed receipt authorized poll deletion"
   [ "$(state_snapshot "$state")" = "$before" ] || fail "malformed receipt changed poll state"
   set +e
-  run_check_entry "$dir" task-a https://github.com/o/r/pull/10 > "$dir/rearm.out" 2> "$dir/rearm.err"
+  run_check_entry_unprepared "$dir" task-a https://github.com/o/r/pull/10 > "$dir/rearm.out" 2> "$dir/rearm.err"
   rc=$?
   set -e
   [ "$rc" -ne 0 ] || fail "rearm accepted an invalid pending retirement receipt"
@@ -3465,7 +3492,7 @@ test_teardown_cannot_race_authority_consumption() {
     "worktree=$dir/wt" \
     "project=$dir/project" \
     'kind=ship' \
-    'mode=local-only' \
+    'mode=direct-PR' \
     'yolo=on'
   write_away_record "$dir"
   run_check_entry "$dir" task-a "$url" >/dev/null 2> "$dir/seed.err" \

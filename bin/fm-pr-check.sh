@@ -65,6 +65,7 @@ fi
 # arming a merge watch here would queue the mate itself for teardown as landed
 # work once that pull request merges.
 KIND=$(grep '^kind=' "$META" | tail -1 | cut -d= -f2- || true)
+MODE=$(grep '^mode=' "$META" | tail -1 | cut -d= -f2- || true)
 if [ "$KIND" = secondmate ]; then
   echo "error: $ID is a secondmate, not a delivery lane - $URL was reported on its status channel but belongs to a task in the mate's own home, which arms its own merge watch" >&2
   exit 1
@@ -82,7 +83,7 @@ STATUS="$STATE/$ID.status"
 if [ "$REGISTERED_URL" != "$URL" ]; then
   if [ ! -f "$STATUS" ] || [ ! -r "$STATUS" ] || [ -L "$STATUS" ] \
     || [ "$(fm_pr_file_link_count "$STATUS")" != 1 ] \
-    || ! status_ready_pr_urls < "$STATUS" | grep -Fqx "$URL"; then
+    || ! status_ready_pr_urls "$MODE" < "$STATUS" | grep -Fqx "$URL"; then
     echo "error: task $ID has no exact PR-ready status for $URL, so it cannot be registered as this task's delivery" >&2
     exit 1
   fi
@@ -175,7 +176,6 @@ if [ "$PROVIDER" = github ] && [ -n "$WT" ] && [ -d "$WT" ] && command -v gh >/d
   fi
 fi
 
-MODE=$(grep '^mode=' "$META" | tail -1 | cut -d= -f2- || true)
 PROJECT=$(grep '^project=' "$META" | tail -1 | cut -d= -f2- || true)
 # The gate is asked about the ready report this task's worker was told to give;
 # on a Gerrit change both publishing modes report the same published line.

@@ -755,15 +755,34 @@ status_pr_url_from_done_note() {  # <note>
   printf '%s\n' "$url"
 }
 
-status_ready_pr_urls() {
-  local line verb note url
+status_pr_url_provider() {  # <validated-url>
+  case "$1" in
+    */c/*/+/[1-9]*) printf 'gerrit\n' ;;
+    */-/merge_requests/[1-9]*) printf 'gitlab\n' ;;
+    */pulls/[1-9]*) printf 'forgejo\n' ;;
+    */pull/[1-9]*) printf 'github\n' ;;
+    *) return 1 ;;
+  esac
+}
+
+status_ready_pr_urls() {  # [<delivery-mode>]
+  local mode=${1:-} line verb note url provider
   while IFS= read -r line || [ -n "$line" ]; do
     status_line_verb "$line" verb
     [ "$verb" = done ] || continue
     note=$(status_line_note "$line")
     url=$(status_pr_url_from_done_note "$note") || continue
-    case "$note" in
-      "PR $url"|"PR $url "*checks\ green*|"PR $url "*published\ for\ review*) ;;
+    provider=$(status_pr_url_provider "$url") || continue
+    case "$provider:$mode" in
+      gerrit:no-mistakes|gerrit:direct-PR|gerrit:)
+        case "$note" in "PR $url "*published\ for\ review*) ;; *) continue ;; esac
+        ;;
+      *:no-mistakes|*:)
+        case "$note" in "PR $url "*checks\ green*) ;; *) continue ;; esac
+        ;;
+      *:direct-PR)
+        [ "$note" = "PR $url" ] || continue
+        ;;
       *) continue ;;
     esac
     printf '%s\n' "$url"

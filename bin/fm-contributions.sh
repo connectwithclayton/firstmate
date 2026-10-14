@@ -118,6 +118,18 @@ export FM_HOME FM_STATE_OVERRIDE="$STATE"
 fail() { printf 'fm-contributions: %s\n' "$*" >&2; exit 1; }
 usage() { sed -n '2,/^set -eu$/s/^# \{0,1\}//p' "$0"; }
 case "${1:-}" in -h|--help) usage; exit 0 ;; esac
+if [ "${1:-}" = migrate-ownership ]; then
+  [ "$#" -eq 2 ] || fail 'migrate-ownership needs one task'
+  fm_pr_task_id_valid "$2" || fail 'invalid contribution task'
+  migration_dir="$DATA/$2"
+  migration_file="$migration_dir/contributions.json"
+  if [ -d "$DATA" ] && [ ! -L "$DATA" ] \
+    && { { [ ! -e "$migration_dir" ] && [ ! -L "$migration_dir" ]; } \
+      || { [ -d "$migration_dir" ] && [ ! -L "$migration_dir" ]; }; } \
+    && [ ! -e "$migration_file" ] && [ ! -L "$migration_file" ]; then
+    exit 0
+  fi
+fi
 command -v jq >/dev/null 2>&1 || fail 'jq is required to measure contribution coverage'
 NOW=${FM_CONTRIBUTIONS_NOW:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}
 EPOCH=$(jq -nr --arg now "$NOW" '$now | fromdateiso8601') || fail 'invalid observation clock'
@@ -569,7 +581,6 @@ case "${1:-}" in
        | .url as $url | .pending[] | . + {task:$owned.task,url:$url}]'
     ;;
   migrate-ownership)
-    [ "$#" -eq 2 ] || fail 'migrate-ownership needs one task'
     migrate_task_ownership "$2"
     ;;
   verdict|ack)
