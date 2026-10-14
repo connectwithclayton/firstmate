@@ -155,9 +155,9 @@
 # claim file sits on top of it, is owned by bin/fm-wake-lib.sh's slot-owner
 # claim comment. A durable secondmate lease can answer, but only when status is
 # leased with both lease_id and lease_holder, the holder is not this task, the
-# claim's home is this teardown's home, the holder is a local registered
-# secondmate whose home is this slot, and exactly one matching secondmate record
-# names that same path; missing, duplicate, unreadable, or contradictory
+# claim's home is this teardown's home, the holder has exactly one local
+# non-remote registry binding at this slot across local Firstmate homes, and
+# exactly one matching secondmate record names that same path; missing, duplicate, unreadable, or contradictory
 # evidence refuses with nothing changed. treehouse status --json lists every
 # pool slot, so a single non-leased match (in-use, available, dirty, unverified,
 # empty lease fields) is not reassignment and leaves the original claim and scan
@@ -2438,6 +2438,7 @@ collect_local_firstmate_states() {
 verified_secondmate_slot_reassignment() {  # <project> <worktree> <stale-task-id>
   local project=$1 worktree=$2 stale_id=$3 slot status_json lease_state holder marker_home current_home
   local states state_dir meta kind home record_path field record_count=0 matched_path
+  local binding_count=0 home_dir reg bound_home
   slot=$(canonical_existing_dir "$worktree") || return 1
   fm_treehouse_slot_owner_state "$slot" "$stale_id"
   [ "$FM_TREEHOUSE_SLOT_OWNER" = mine ] || return 1
@@ -2460,12 +2461,22 @@ verified_secondmate_slot_reassignment() {  # <project> <worktree> <stale-task-id
   marker_home=$(canonical_existing_dir "$FM_TREEHOUSE_SLOT_OWNER_HOME") || return 2
   current_home=$(canonical_existing_dir "$FM_HOME") || return 2
   [ "$marker_home" = "$current_home" ] || return 2
-  secondmate_registry_validate_bindings "$SECONDMATE_REG" secondmate_registry_path_key "$holder" || return 2
-  [ "$SECONDMATE_REGISTRY_MATCH_REMOTE" -eq 0 ] || return 2
-  home=$(canonical_existing_dir "$SECONDMATE_REGISTRY_MATCH_HOME") || return 2
-  [ "$home" = "$slot" ] || return 2
   fm_local_firstmate_state_dirs "$STATE" || return 2
   states=("${FM_LOCAL_FIRSTMATE_STATES[@]}")
+  for state_dir in "${states[@]}"; do
+    home_dir=${state_dir%/state}
+    [ "$home_dir" != "$state_dir" ] || return 2
+    reg="$home_dir/data/secondmates.md"
+    [ -e "$reg" ] || [ -L "$reg" ] || continue
+    secondmate_registry_validate_bindings "$reg" secondmate_registry_path_key || return 2
+    secondmate_registry_line_for_id "$reg" "$holder" || continue
+    [ "$SECONDMATE_REGISTRY_REMOTE" -eq 0 ] || return 2
+    bound_home=$(canonical_existing_dir "$SECONDMATE_REGISTRY_HOME") || return 2
+    [ "$bound_home" = "$slot" ] || return 2
+    binding_count=$((binding_count + 1))
+    home=$bound_home
+  done
+  [ "$binding_count" -eq 1 ] || return 2
   for state_dir in "${states[@]}"; do
     meta="$state_dir/$holder.meta"
     [ -f "$meta" ] && [ ! -L "$meta" ] || continue

@@ -1186,7 +1186,7 @@ test_uncertain_secondmate_lease_evidence_still_refuses() {
     slot=$(cd "$dir/pool/1/project" && pwd -P)
     fm_write_meta "$dir/home/state/$id.meta" \
       "window=firstmate:fm-$id" "endpoint_task_id=$id" "spawn_gen=1" \
-      "worktree=$dir/worktree" "project=$dir/project" "kind=scout"
+      "worktree=$dir/worktree" "project=$dir/project" "kind=ship"
     fm_write_meta "$dir/home/state/$other.meta" \
       "kind=secondmate" "home=$slot" "worktree=$slot" "project=$dir/project"
     printf '%s\n' "- $other - fixture (home: $slot; scope: test; projects: project; added 2026-01-01)" \
