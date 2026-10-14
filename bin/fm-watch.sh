@@ -2736,7 +2736,7 @@ quarantine_pr_poll() {  # <id> <url>
 }
 
 reconcile_pr_poll_ownership() {  # <id> <provider> <url> <host> <path> <number>
-  local id=$1 provider=$2 url=$3 host=$4 path=$5 number=$6 meta status mode ready ready_after ready_era contribution_ownership
+  local id=$1 provider=$2 url=$3 host=$4 path=$5 number=$6 meta status mode ready ready_era contribution_ownership
   meta="$STATE/$id.meta"
   if fm_pr_metadata_identity_parse "$meta" \
     && [ "$FM_PR_META_PROVIDER" = "$provider" ] \
@@ -2752,6 +2752,10 @@ reconcile_pr_poll_ownership() {  # <id> <provider> <url> <host> <path> <number>
     && [ "$FM_PR_META_HOST" = "$host" ] \
     && [ "$FM_PR_META_PATH" = "$path" ] \
     && [ "$FM_PR_META_NUMBER" = "$number" ] || return 1
+  if fm_pr_poll_merge_already_notified "$STATE" "$id" "$provider" "$host" "$path" "$number"; then
+    fm_pr_metadata_ownership_set "$STATE" "$id" "$url" proven-merge-authorized-v1 || return 1
+    return 0
+  fi
   if fm_merge_authority_read "$STATE" "$id" "$provider" "$host" "$path" "$number"; then
     fm_pr_metadata_ownership_set "$STATE" "$id" "$url" proven-merge-authorized-v1 || return 1
     return 0
@@ -2772,12 +2776,11 @@ reconcile_pr_poll_ownership() {  # <id> <provider> <url> <host> <path> <number>
   status="$STATE/$id.status"
   mode=$(fm_meta_get "$meta" mode)
   fm_pr_ready_after_read "$meta" || return 1
-  ready_after=${FM_PR_READY_AFTER_LINE:-0}
   ready_era=$FM_PR_READY_ERA
   ready=
   if [ -f "$status" ] && [ ! -L "$status" ] \
     && [ "$(fm_pr_file_link_count "$status")" = 1 ]; then
-    ready=$(status_latest_ready_pr_url "$mode" "$((ready_after + 1))" "$ready_era" < "$status")
+    ready=$(status_latest_ready_pr_url "$mode" 1 "$ready_era" < "$status")
   fi
   if [ "$ready" = "$url" ]; then
     fm_pr_metadata_ownership_set "$STATE" "$id" "$url" proven-ready-status-v1 || return 1
@@ -2786,6 +2789,37 @@ reconcile_pr_poll_ownership() {  # <id> <provider> <url> <host> <path> <number>
   fm_pr_metadata_ownership_set "$STATE" "$id" "$url" quarantined-legacy-v1 || return 1
   return 3
 }
+
+reconcile_poll_less_pr_ownership() {
+  local meta id result
+  for meta in "$STATE"/*.meta; do
+    [ -f "$meta" ] && [ ! -L "$meta" ] || continue
+    id=$(basename "$meta" .meta)
+    fm_pr_task_id_valid "$id" || continue
+    [ "$(fm_meta_get "$meta" kind)" != scout ] || continue
+    [ ! -e "$STATE/$id.pr-poll" ] && [ ! -L "$STATE/$id.pr-poll" ] || continue
+    [ ! -e "$STATE/$id.check.sh" ] && [ ! -L "$STATE/$id.check.sh" ] || continue
+    fm_pr_metadata_identity_parse_any "$meta" || continue
+    case "$FM_PR_META_OWNERSHIP" in
+      proven-ready-status-v1|proven-merge-authorized-v1|proven-contribution-v1) continue ;;
+    esac
+    reconcile_pr_poll_ownership "$id" "$FM_PR_META_PROVIDER" "$FM_PR_META_URL" \
+      "$FM_PR_META_HOST" "$FM_PR_META_PATH" "$FM_PR_META_NUMBER" || result=$?
+    result=${result:-0}
+    case "$result" in
+      0) ;;
+      2) fm_pr_rejected_metadata_identity_clear "$STATE" "$id" "$FM_PR_META_URL" || return 1 ;;
+      3)
+        fm_wake_append check "pr-ownership-$id" \
+          "check: quarantined legacy PR ownership for $id ($FM_PR_META_URL); append the current mode-valid PR-ready status and run fm-pr-check.sh to reconcile" \
+          || return 1
+        ;;
+      *) return 1 ;;
+    esac
+    result=
+  done
+}
+reconcile_poll_less_pr_ownership || exit 1
 
 # A poll armed before a state volume remount can fail capture only because its
 # registration names the old device number; bin/fm-pr-lib.sh

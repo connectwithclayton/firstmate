@@ -387,7 +387,7 @@ ready_pr_url_in_file() {  # <file> <delivery-mode> [<last-ineligible-line>] [<re
 
 ready_pr_url_for_meta() {  # <meta> <status-file> <delivery-mode>
   fm_pr_ready_after_read "$1" || return 1
-  ready_pr_url_in_file "$2" "$3" "${FM_PR_READY_AFTER_LINE:-0}" "$FM_PR_READY_ERA"
+  ready_pr_url_in_file "$2" "$3" 0 "$FM_PR_READY_ERA"
 }
 
 ready_pr_url_rejected_for_meta() {  # <meta> <url>

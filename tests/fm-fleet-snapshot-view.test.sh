@@ -351,7 +351,7 @@ test_scout_pr_mention_is_not_an_artifact() {
     'harness=codex' \
     'kind=ship' \
     'mode=no-mistakes' \
-    'pr_ready_after_line=1'
+    'pr_ready_era=00000000000000000000000000000001'
   printf 'done: PR %s checks green\n' "$url" > "$home/state/cutoff-old.status"
   fm_write_meta "$home/state/cutoff-new.meta" \
     'window=firstmate:fm-cutoff-new' \
@@ -362,8 +362,8 @@ test_scout_pr_mention_is_not_an_artifact() {
     'mode=no-mistakes' \
     'pr_ownership=rejected-scout-v1' \
     "pr_rejected_url=$url" \
-    'pr_ready_after_line=1'
-  printf 'done: PR %s checks green\ndone: PR %s checks green\n' "$url" "$url" \
+    'pr_ready_era=00000000000000000000000000000001'
+  printf 'done: PR %s checks green\ndone [era=00000000000000000000000000000001]: PR %s checks green\n' "$url" "$url" \
     > "$home/state/cutoff-new.status"
 
   out=$(PATH="$fakebin:$PATH" FM_HOME="$home" "$SNAPSHOT" --json)

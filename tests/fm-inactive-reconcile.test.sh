@@ -446,7 +446,7 @@ test_pr_field_requires_recorded_pr_or_ready_signal_line() {
   write_child "$MATE" unready 'done: PR https://github.com/owner/repo/pull/88'
   write_child "$MATE" lookout 'done: PR https://github.com/owner/repo/pull/55'
   write_child "$MATE" cutoff-old 'done: PR https://github.com/owner/repo/pull/99 checks green'
-  write_child "$MATE" cutoff-new $'done: PR https://github.com/owner/repo/pull/100 checks green\ndone: PR https://github.com/owner/repo/pull/100 checks green'
+  write_child "$MATE" cutoff-new $'done: PR https://github.com/owner/repo/pull/100 checks green\ndone [era=00000000000000000000000000000001]: PR https://github.com/owner/repo/pull/100 checks green'
   for id in prose ready stamped placeholder unready cutoff-old cutoff-new; do
     awk '$0 !~ /^pr=/' "$MATE/state/$id.meta" > "$MATE/state/$id.meta.tmp"
     mv "$MATE/state/$id.meta.tmp" "$MATE/state/$id.meta"
@@ -455,11 +455,11 @@ test_pr_field_requires_recorded_pr_or_ready_signal_line() {
     awk '$0 !~ /^pr_ownership=/' "$MATE/state/$id.meta" > "$MATE/state/$id.meta.tmp"
     mv "$MATE/state/$id.meta.tmp" "$MATE/state/$id.meta"
   done
-  printf 'pr_ready_after_line=1\n' >> "$MATE/state/cutoff-old.meta"
+  printf 'pr_ready_era=00000000000000000000000000000001\n' >> "$MATE/state/cutoff-old.meta"
   printf '%s\n' \
     'pr_ownership=rejected-scout-v1' \
     'pr_rejected_url=https://github.com/owner/repo/pull/100' \
-    'pr_ready_after_line=1' >> "$MATE/state/cutoff-new.meta"
+    'pr_ready_era=00000000000000000000000000000001' >> "$MATE/state/cutoff-new.meta"
   awk '{ sub(/^kind=ship$/, "kind=scout"); print }' "$MATE/state/lookout.meta" \
     > "$MATE/state/lookout.meta.tmp"
   mv "$MATE/state/lookout.meta.tmp" "$MATE/state/lookout.meta"

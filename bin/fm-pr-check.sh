@@ -61,7 +61,7 @@ fi
 
 STATUS="$STATE/$ID.status"
 pr_check_validate_provenance() {
-  local registered_url= registered_ownership= rejected_url ready_after ready_era boundary_present ready_url=
+  local registered_url= registered_ownership= rejected_url ready_era boundary_present ready_url=
   KIND=$(grep '^kind=' "$META" | tail -1 | cut -d= -f2- || true)
   MODE=$(grep '^mode=' "$META" | tail -1 | cut -d= -f2- || true)
   if [ "$KIND" = secondmate ]; then
@@ -81,12 +81,11 @@ pr_check_validate_provenance() {
     echo "error: task $ID has invalid PR-ready promotion provenance" >&2
     return 1
   }
-  ready_after=${FM_PR_READY_AFTER_LINE:-0}
   ready_era=$FM_PR_READY_ERA
   boundary_present=$FM_PR_READY_BOUNDARY_PRESENT
   if [ -f "$STATUS" ] && [ -r "$STATUS" ] && [ ! -L "$STATUS" ] \
     && [ "$(fm_pr_file_link_count "$STATUS")" = 1 ]; then
-    ready_url=$(status_latest_ready_pr_url "$MODE" "$((ready_after + 1))" "$ready_era" < "$STATUS")
+    ready_url=$(status_latest_ready_pr_url "$MODE" 1 "$ready_era" < "$STATUS")
   fi
   case "$registered_ownership" in
     proven-ready-status-v1|proven-merge-authorized-v1|proven-contribution-v1) OWNERSHIP=$registered_ownership ;;
@@ -243,6 +242,9 @@ trap 'exit 1' HUP INT TERM
 fm_pr_poll_prepare "$STATE" "$ID" "$PROVIDER" "$URL" "$HOST" "$PROJECT_PATH" "$NUMBER" "$SCRIPT_DIR/fm-pr-poll.sh" \
   || { echo "error: could not prepare PR poll" >&2; exit 1; }
 
+PR_POLL_PUBLISH_LOCK="$STATE/.pr-poll-publish-$ID.lock"
+fm_lock_acquire_wait "$PR_POLL_PUBLISH_LOCK"
+PR_POLL_PUBLISH_LOCK_HELD=1
 META_LOCK=$(fm_meta_lock_path "$META") || exit 1
 fm_lock_acquire_wait "$META_LOCK"
 META_LOCK_HELD=1
@@ -280,12 +282,6 @@ fm_pr_metadata_identity_parse "$META" || exit 1
 [ "$FM_PR_META_PROVIDER" = "$PROVIDER" ] && [ "$FM_PR_META_URL" = "$URL" ] \
   && [ "$FM_PR_META_HOST" = "$HOST" ] && [ "$FM_PR_META_PATH" = "$PROJECT_PATH" ] \
   && [ "$FM_PR_META_NUMBER" = "$NUMBER" ] || exit 1
-fm_lock_release "$META_LOCK"
-META_LOCK_HELD=0
-
-PR_POLL_PUBLISH_LOCK="$STATE/.pr-poll-publish-$ID.lock"
-fm_lock_acquire_wait "$PR_POLL_PUBLISH_LOCK"
-PR_POLL_PUBLISH_LOCK_HELD=1
 if fm_pr_poll_publish_prepared; then
   if [ "$PR_POLL_QUARANTINE_PENDING" = 1 ] \
     && ! fm_pr_poll_retirement_recover_one "$STATE" "$ID" "$SCRIPT_DIR/fm-pr-poll.sh"; then
@@ -302,6 +298,10 @@ else
   echo "error: could not publish PR poll" >&2
   exit 1
 fi
+fm_lock_release "$META_LOCK"
+META_LOCK_HELD=0
+fm_lock_release "$PR_POLL_PUBLISH_LOCK"
+PR_POLL_PUBLISH_LOCK_HELD=0
 # Opt-in fleet activity ledger (docs/fleet-ledger.md); off costs one file test.
 # The merge-time re-record is not a new review-ready PR, so it writes nothing.
 [ ! -e "${FM_CONFIG_OVERRIDE:-$FM_HOME/config}/fleet-ledger" ] || [ "${FM_PR_CHECK_MERGE:-}" = 1 ] \

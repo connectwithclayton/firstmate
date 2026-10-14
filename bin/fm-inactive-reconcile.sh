@@ -328,7 +328,7 @@ meta_incarnation() { # <meta>
 # in prose is never claimed as the delivery.
 # A scout never delivers a PR, so it never carries one.
 pr_for_task() { # <meta> [preferred-line] [status-file]
-  local meta=$1 preferred=${2:-} status=${3:-} value mode preferred_url ready_after ready_era ready_url
+  local meta=$1 preferred=${2:-} status=${3:-} value mode preferred_url ready_era ready_url
   [ "$(meta_field "$meta" kind)" != scout ] || return 0
   value=
   if fm_pr_metadata_identity_parse "$meta"; then
@@ -338,13 +338,12 @@ pr_for_task() { # <meta> [preferred-line] [status-file]
     mode=$(meta_field "$meta" mode)
     preferred_url=$(printf '%s\n' "$preferred" | status_latest_ready_pr_url "$mode" || true)
     if fm_pr_ready_after_read "$meta"; then
-      ready_after=${FM_PR_READY_AFTER_LINE:-0}
       ready_era=$FM_PR_READY_ERA
       if [ "$FM_PR_READY_BOUNDARY_PRESENT" -eq 1 ]; then
         ready_url=
         if [ -f "$status" ] && [ ! -L "$status" ] \
           && [ "$(fm_pr_file_link_count "$status")" = 1 ]; then
-          ready_url=$(status_latest_ready_pr_url "$mode" "$((ready_after + 1))" "$ready_era" < "$status" || true)
+          ready_url=$(status_latest_ready_pr_url "$mode" 1 "$ready_era" < "$status" || true)
         fi
         [ -n "$preferred_url" ] && [ "$preferred_url" = "$ready_url" ] && value=$preferred_url
       elif [ "$preferred_url" != "$(meta_field "$meta" pr_rejected_url)" ]; then

@@ -3099,7 +3099,7 @@ test_promoted_legacy_poll_ownership_is_reconciled_before_execution() {
     'kind=ship' \
     'mode=no-mistakes' \
     'backend=tmux' \
-    'pr_ready_after_line=1' \
+    'pr_ready_era=00000000000000000000000000000001' \
     "pr=$url"
   printf 'done: PR %s checks green\n' "$url" > "$state/task-a.status"
   seed_canonical_poll "$dir" task-a "$url"
@@ -3123,7 +3123,7 @@ test_promoted_legacy_poll_ownership_is_reconciled_before_execution() {
   [ ! -e "$state/task-a.pr-poll-merge-notified" ] \
     || fail "quarantine emitted a merge outcome"
 
-  printf 'done: PR %s checks green\n' "$url" >> "$state/task-a.status"
+  printf 'done [era=00000000000000000000000000000001]: PR %s checks green\n' "$url" >> "$state/task-a.status"
   run_check_entry_unprepared "$dir" task-a "$url" > "$dir/reconcile.out" 2> "$dir/reconcile.err" \
     || fail "ready evidence could not reconcile quarantined ownership: $(cat "$dir/reconcile.err")"
   grep -qx 'pr_ownership=proven-ready-status-v1' "$state/task-a.meta" \
@@ -3203,7 +3203,7 @@ test_unavailable_contribution_ownership_is_quarantined() {
     'kind=ship' \
     'mode=no-mistakes' \
     'backend=tmux' \
-    'pr_ready_after_line=1' \
+    'pr_ready_era=00000000000000000000000000000001' \
     "pr=$url"
   printf 'done: PR %s checks green\n' "$url" > "$state/task-a.status"
   mkdir -p "$dir/home/data/task-a"
@@ -4302,15 +4302,10 @@ test_device_rerecord_serializes_direct_rearm() {
   FM_ROOT_OVERRIDE="$dir/root" FM_HOME="$dir/home" FM_TEST_GUARD_LOG="$dir/guard.log" \
     PATH="$dir/fakebin:$BASE_PATH" "$PR_CHECK" task-a "$url_b" > "$dir/rearm.out" 2> "$dir/rearm.err" &
   rearm_pid=$!
-  for i in $(seq 1 100); do
-    if fm_pr_metadata_identity_parse "$state/task-a.meta" && [ "$FM_PR_META_URL" = "$url_b" ]; then
-      break
-    fi
-    sleep 0.02
-  done
-  [ "$FM_PR_META_URL" = "$url_b" ] || fail "direct re-arm did not rewrite metadata before publication"
   sleep 1
   process_is_live_non_zombie "$rearm_pid" || fail "direct re-arm did not wait for poll publication"
+  fm_pr_metadata_identity_parse "$state/task-a.meta" && [ "$FM_PR_META_URL" = "$url_a" ] \
+    || fail "blocked direct re-arm changed metadata before poll publication"
   cmp -s "$dir/published.pr-poll" "$state/task-a.pr-poll" \
     || fail "blocked direct re-arm replaced the published sidecar"
   cmp -s "$dir/published.registration" "$state/task-a.pr-poll-registration" \
@@ -4319,6 +4314,8 @@ test_device_rerecord_serializes_direct_rearm() {
     || fail "blocked direct re-arm replaced the published check"
   release_poll_publish_holder
   wait "$rearm_pid" || fail "direct re-arm failed after poll publication release: $(cat "$dir/rearm.err")"
+  fm_pr_metadata_identity_parse "$state/task-a.meta" && [ "$FM_PR_META_URL" = "$url_b" ] \
+    || fail "released direct re-arm did not publish metadata with its poll"
   fm_pr_poll_artifacts_valid "$state" task-a "$POLL" || fail "released direct re-arm did not publish a strict poll"
   [ "$(sed -n 4p "$state/task-a.pr-poll-registration")" = "$url_b" ] \
     || fail "released direct re-arm registration does not name its PR"
