@@ -1,0 +1,96 @@
+=== scenario: same-home verified secondmate lease retires only stale records ===
+lease_before=[{"name":"1","path":"/private/var/folders/nz/2_wts0tj2_s7x1flcwlpvvdh0000gn/T/fm-slot-live.RFeTpD/same-home/project/.treehouse/project-449bd9/1/project","status":"leased","branch":"orbit-wip","flavor":"git","lease_id":"92682c4ce02ac75332e771a10d6e272e","lease_holder":"orbit-mate","leased_at":"2026-10-13T23:23:39.630357-04:00","processes":[{"pid":47677,"name":"sleep"}]}]
+marker_before=task=stale-task
+home=/private/var/folders/nz/2_wts0tj2_s7x1flcwlpvvdh0000gn/T/fm-slot-live.RFeTpD/same-home/home.Ow3doI
+teardown_rc=0
+----- stdout -----
+/var/folders/nz/2_wts0tj2_s7x1flcwlpvvdh0000gn/T//fm-slot-live.RFeTpD/same-home/project: skipped: no origin remote
+teardown stale-task complete (window firstmate:fm-stale-task; pool slot /private/var/folders/nz/2_wts0tj2_s7x1flcwlpvvdh0000gn/T/fm-slot-live.RFeTpD/same-home/project/.treehouse/project-449bd9/1/project left to task orbit-mate (home /private/var/folders/nz/2_wts0tj2_s7x1flcwlpvvdh0000gn/T/fm-slot-live.RFeTpD/same-home/project/.treehouse/project-449bd9/1/project), which it was reassigned to)
+Backlog: stale-task just finished (this home keeps no markdown backlog at /private/var/folders/nz/2_wts0tj2_s7x1flcwlpvvdh0000gn/T/fm-slot-live.RFeTpD/same-home/home.Ow3doI/data/backlog.md). Update /private/var/folders/nz/2_wts0tj2_s7x1flcwlpvvdh0000gn/T/fm-slot-live.RFeTpD/same-home/home.Ow3doI/data/backlog.md - move stale-task to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+----- stderr -----
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /private/var/folders/nz/2_wts0tj2_s7x1flcwlpvvdh0000gn/T/fm-slot-live.RFeTpD/same-home/home.Ow3doI
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  2 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e /Users/claytonjohnson/.no-mistakes/worktrees/dad68ef8e401/01M4W2AXEYB8PZW4HK61F1S6JA/.pi/extensions/fm-primary-turnend-guard.ts -e /Users/claytonjohnson/.no-mistakes/worktrees/dad68ef8e401/01M4W2AXEYB8PZW4HK61F1S6JA/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+warning: task stale-task's recorded worktree /private/var/folders/nz/2_wts0tj2_s7x1flcwlpvvdh0000gn/T/fm-slot-live.RFeTpD/same-home/project/.treehouse/project-449bd9/1/project was reassigned to persistent second mate orbit-mate (home /private/var/folders/nz/2_wts0tj2_s7x1flcwlpvvdh0000gn/T/fm-slot-live.RFeTpD/same-home/project/.treehouse/project-449bd9/1/project), which holds its durable Treehouse lease; only stale-task's own records will be retired.
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+lease_after=[{"name":"1","path":"/private/var/folders/nz/2_wts0tj2_s7x1flcwlpvvdh0000gn/T/fm-slot-live.RFeTpD/same-home/project/.treehouse/project-449bd9/1/project","status":"leased","branch":"orbit-wip","flavor":"git","lease_id":"92682c4ce02ac75332e771a10d6e272e","lease_holder":"orbit-mate","leased_at":"2026-10-13T23:23:39.630357-04:00","processes":[{"pid":47677,"name":"sleep"}]}]
+PASS same-home
+=== scenario: missing historical backlog row completes without pending close ===
+teardown_rc=0
+----- stdout -----
+/var/folders/nz/2_wts0tj2_s7x1flcwlpvvdh0000gn/T//fm-slot-live.RFeTpD/missing-row/project: skipped: no origin remote
+teardown stale-task complete (window firstmate:fm-stale-task; pool slot /private/var/folders/nz/2_wts0tj2_s7x1flcwlpvvdh0000gn/T/fm-slot-live.RFeTpD/missing-row/project/.treehouse/project-a3a0db/1/project left to task orbit-mate (home /private/var/folders/nz/2_wts0tj2_s7x1flcwlpvvdh0000gn/T/fm-slot-live.RFeTpD/missing-row/project/.treehouse/project-a3a0db/1/project), which it was reassigned to)
+Backlog: stale-task just finished (historical backlog item stale-task is already absent). Update /private/var/folders/nz/2_wts0tj2_s7x1flcwlpvvdh0000gn/T/fm-slot-live.RFeTpD/missing-row/home.K0EEKF/data/backlog.md - move stale-task to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+----- stderr -----
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /private/var/folders/nz/2_wts0tj2_s7x1flcwlpvvdh0000gn/T/fm-slot-live.RFeTpD/missing-row/home.K0EEKF
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  2 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e /Users/claytonjohnson/.no-mistakes/worktrees/dad68ef8e401/01M4W2AXEYB8PZW4HK61F1S6JA/.pi/extensions/fm-primary-turnend-guard.ts -e /Users/claytonjohnson/.no-mistakes/worktrees/dad68ef8e401/01M4W2AXEYB8PZW4HK61F1S6JA/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+warning: task stale-task's recorded worktree /private/var/folders/nz/2_wts0tj2_s7x1flcwlpvvdh0000gn/T/fm-slot-live.RFeTpD/missing-row/project/.treehouse/project-a3a0db/1/project was reassigned to persistent second mate orbit-mate (home /private/var/folders/nz/2_wts0tj2_s7x1flcwlpvvdh0000gn/T/fm-slot-live.RFeTpD/missing-row/project/.treehouse/project-a3a0db/1/project), which holds its durable Treehouse lease; only stale-task's own records will be retired.
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+PASS missing-row
+=== scenario: cross-home secondmate registry proves lease and retires only stale records ===
+teardown_rc=0
+----- stdout -----
+/var/folders/nz/2_wts0tj2_s7x1flcwlpvvdh0000gn/T//fm-slot-live.RFeTpD/cross-home/project: skipped: no origin remote
+teardown stale-task complete (window firstmate:fm-stale-task; pool slot /private/var/folders/nz/2_wts0tj2_s7x1flcwlpvvdh0000gn/T/fm-slot-live.RFeTpD/cross-home/project/.treehouse/project-0873b0/1/project left to task orbit-mate (home /private/var/folders/nz/2_wts0tj2_s7x1flcwlpvvdh0000gn/T/fm-slot-live.RFeTpD/cross-home/project/.treehouse/project-0873b0/1/project), which it was reassigned to)
+Backlog: stale-task just finished (historical backlog item stale-task is already absent). Update /private/var/folders/nz/2_wts0tj2_s7x1flcwlpvvdh0000gn/T/fm-slot-live.RFeTpD/cross-home/child.60fVFU/data/backlog.md - move stale-task to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+----- stderr -----
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /private/var/folders/nz/2_wts0tj2_s7x1flcwlpvvdh0000gn/T/fm-slot-live.RFeTpD/cross-home/child.60fVFU
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e /Users/claytonjohnson/.no-mistakes/worktrees/dad68ef8e401/01M4W2AXEYB8PZW4HK61F1S6JA/.pi/extensions/fm-primary-turnend-guard.ts -e /Users/claytonjohnson/.no-mistakes/worktrees/dad68ef8e401/01M4W2AXEYB8PZW4HK61F1S6JA/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+warning: task stale-task's recorded worktree /private/var/folders/nz/2_wts0tj2_s7x1flcwlpvvdh0000gn/T/fm-slot-live.RFeTpD/cross-home/project/.treehouse/project-0873b0/1/project was reassigned to persistent second mate orbit-mate (home /private/var/folders/nz/2_wts0tj2_s7x1flcwlpvvdh0000gn/T/fm-slot-live.RFeTpD/cross-home/project/.treehouse/project-0873b0/1/project), which holds its durable Treehouse lease; only stale-task's own records will be retired.
+PASS cross-home
+=== scenario: leased slot with missing secondmate record refuses without mutation ===
+teardown_rc=1
+----- stdout -----
+----- stderr -----
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /private/var/folders/nz/2_wts0tj2_s7x1flcwlpvvdh0000gn/T/fm-slot-live.RFeTpD/refuse-missing-record/home.oTtfS5
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e /Users/claytonjohnson/.no-mistakes/worktrees/dad68ef8e401/01M4W2AXEYB8PZW4HK61F1S6JA/.pi/extensions/fm-primary-turnend-guard.ts -e /Users/claytonjohnson/.no-mistakes/worktrees/dad68ef8e401/01M4W2AXEYB8PZW4HK61F1S6JA/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REFUSED: Treehouse reports or may hold a lease on /private/var/folders/nz/2_wts0tj2_s7x1flcwlpvvdh0000gn/T/fm-slot-live.RFeTpD/refuse-missing-record/project/.treehouse/project-9d948d/1/project, but its persistent secondmate ownership cannot be proved; nothing was changed.
+PASS refuse-missing-record
+=== scenario: non-leased in-use status does not prove secondmate reassignment ===
+in_use_status=[{"name":"1","path":"/private/var/folders/nz/2_wts0tj2_s7x1flcwlpvvdh0000gn/T/fm-slot-live.RFeTpD/in-use/project/.treehouse/project-d128f6/1/project","status":"in-use","branch":"","detached":true,"flavor":"git","lease_id":"","lease_holder":"","leased_at":null,"processes":[{"pid":80159,"name":"sleep"}]}]
+teardown_rc=0
+----- stdout -----
+A new version of treehouse is available: v3.1.2 → v3.1.3
+Run "treehouse update" to update
+
+🌳 Worktree returned to pool.
+/var/folders/nz/2_wts0tj2_s7x1flcwlpvvdh0000gn/T//fm-slot-live.RFeTpD/in-use/project: skipped: no origin remote
+teardown owned-task complete (window firstmate:fm-owned-task, worktree /private/var/folders/nz/2_wts0tj2_s7x1flcwlpvvdh0000gn/T/fm-slot-live.RFeTpD/in-use/project/.treehouse/project-d128f6/1/project)
+Backlog: owned-task just finished (this home keeps no markdown backlog at /private/var/folders/nz/2_wts0tj2_s7x1flcwlpvvdh0000gn/T/fm-slot-live.RFeTpD/in-use/home.wWpcBZ/data/backlog.md). Update /private/var/folders/nz/2_wts0tj2_s7x1flcwlpvvdh0000gn/T/fm-slot-live.RFeTpD/in-use/home.wWpcBZ/data/backlog.md - move owned-task to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+----- stderr -----
+fm-gate-refuse: gate agent lifecycle permitted only against lab home /private/var/folders/nz/2_wts0tj2_s7x1flcwlpvvdh0000gn/T/fm-slot-live.RFeTpD/in-use/home.wWpcBZ
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair a missing or failed watcher cycle with the Pi tool fm_watch_arm_pi, or restart Pi with -e /Users/claytonjohnson/.no-mistakes/worktrees/dad68ef8e401/01M4W2AXEYB8PZW4HK61F1S6JA/.pi/extensions/fm-primary-turnend-guard.ts -e /Users/claytonjohnson/.no-mistakes/worktrees/dad68ef8e401/01M4W2AXEYB8PZW4HK61F1S6JA/.pi/extensions/fm-primary-pi-watch.ts if the extensions are not loaded.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+teardown: reaping leaked worktree process(es) for owned-task: 80159 82271
+PASS in-use
+default_treehouse_mtime_before=1791863120
+default_treehouse_mtime_after=1791863120
+OVERALL_FAILED=0
