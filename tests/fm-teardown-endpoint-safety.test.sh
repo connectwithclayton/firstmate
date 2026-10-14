@@ -1076,6 +1076,63 @@ test_stale_self_claim_retires_only_after_verified_secondmate_lease() {
   pass "fm-teardown: verified durable secondmate ownership permits only stale-record retirement"
 }
 
+test_cross_home_secondmate_lease_retires_stale_record_without_backlog_row() {
+  local dir id=stale-task other=orbit-mate slot root marker_before record_before worker rc
+  dir=$(make_case cross-home-secondmate-lease-missing-backlog)
+  root="$dir/root-home"
+  mkdir -p "$root/state" "$root/data" "$root/config" "$root/projects"
+  write_local_parent_record "$dir/home" "$root"
+  mark_case_as_treehouse_pool "$dir"
+  slot=$(cd "$dir/pool/1/project" && pwd -P)
+  git -C "$slot" add sentinel
+  git -C "$slot" -c user.name=test -c user.email=test@example.invalid commit -qm secondmate-files
+  fm_write_meta "$dir/home/state/$id.meta" \
+    "window=firstmate:fm-$id" "endpoint_task_id=$id" "spawn_gen=1" \
+    "worktree=$dir/worktree" "project=$dir/project" "kind=ship"
+  fm_write_meta "$root/state/$other.meta" \
+    "kind=secondmate" "home=$slot" "worktree=$slot" "project=$dir/project"
+  printf '%s\n' "- $other - fixture (home: $slot; scope: test; projects: project; added 2026-01-01)" \
+    > "$root/data/secondmates.md"
+  printf '%s\n' '# Backlog' '' '## In flight' '' '## Queued' '' '## Done' \
+    > "$dir/home/data/backlog.md"
+  claim_pool_slot "$dir" "$id" "$dir/home"
+  marker_before=$(cat "$dir/pool/1/.fm-slot-owner")
+  record_before=$(cksum "$root/state/$other.meta")
+  printf '[{"name":"1","path":"%s","status":"leased","lease_id":"fixture-lease","lease_holder":"%s"}]\n' \
+    "$slot" "$other" > "$dir/treehouse-status.json"
+  ( cd "$slot" && exec sleep 30 ) &
+  worker=$!
+
+  set +e
+  run_case_without_force "$dir" "$id" > "$dir/stdout" 2> "$dir/stderr"
+  rc=$?
+  set -e
+  kill -0 "$worker" 2>/dev/null || fail "cross-home refusal killed the secondmate process"
+  if [ "$rc" -eq 0 ]; then
+    assert_absent "$dir/home/state/$id.meta" "cross-home records-only cleanup left the stale task record"
+    assert_absent "$dir/home/state/$id.backlog-close" "missing backlog row left a pending-close record"
+    assert_present "$root/state/$other.meta" "cross-home cleanup removed the secondmate record"
+    [ "$(cksum "$root/state/$other.meta")" = "$record_before" ] \
+      || fail "cross-home cleanup changed the secondmate record"
+    assert_present "$dir/pool/1/.fm-slot-owner" "cross-home cleanup removed the stale owner marker"
+    [ "$(cat "$dir/pool/1/.fm-slot-owner")" = "$marker_before" ] \
+      || fail "cross-home cleanup changed the slot owner marker"
+    assert_present "$dir/pool/1/project/.git" "cross-home cleanup removed the secondmate checkout"
+    assert_present "$dir/worktree/sentinel" "cross-home cleanup changed the secondmate files"
+    ! grep -Fq 'treehouse <return>' "$dir/runtime.log" \
+      || fail "cross-home cleanup returned the leased slot"
+  else
+    assert_present "$dir/home/state/$id.meta" "cross-home failure partially removed the stale task record"
+    assert_absent "$dir/home/state/$id.backlog-close" "cross-home failure left a pending-close record"
+    assert_present "$root/state/$other.meta" "cross-home failure changed the secondmate record"
+    assert_present "$dir/pool/1/.fm-slot-owner" "cross-home failure changed the slot owner marker"
+  fi
+  kill "$worker" 2>/dev/null || true
+  wait "$worker" 2>/dev/null || true
+  [ "$rc" -eq 0 ] || fail "cross-home lease proof or missing-row records-only retirement failed: $(cat "$dir/stderr")"
+  pass "fm-teardown: cross-home lease proof retires only the stale record when its backlog row is absent"
+}
+
 test_uncertain_secondmate_lease_evidence_still_refuses() {
   local dir id=stale-task other=orbit-mate slot rc case_name
   for case_name in missing ambiguous unreadable contradictory-lease missing-record contradictory-record contradictory-marker canonical-path; do
@@ -1544,6 +1601,7 @@ test_sole_slot_record_still_tears_down
 test_reassigned_pool_slot_finishes_own_cleanup_without_touching_the_slot
 test_stale_record_on_claimed_slot_retires_then_claimant_tears_down
 test_stale_self_claim_retires_only_after_verified_secondmate_lease
+test_cross_home_secondmate_lease_retires_stale_record_without_backlog_row
 test_uncertain_secondmate_lease_evidence_still_refuses
 test_own_and_absent_slot_claims_still_tear_down
 test_recorded_endpoint_that_changed_directory_still_tears_down
