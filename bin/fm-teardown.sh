@@ -22,7 +22,12 @@
 # A close that fails is fatal and loud, preserves its pending-close record, and
 # is retried by the next session start. The transition is skipped on a
 # config/backlog-backend=manual home and in a markdown home that keeps no
-# data/backlog.md; those cases print the manual follow-up. A configured
+# data/backlog.md; those cases print the manual follow-up. A proved records-only
+# slot reassignment whose historical backlog row is already absent also skips
+# the transition, without writing a pending-close record, so metadata can retire
+# without a close that tasks-axi would fail; an unreadable row still refuses
+# with nothing changed, and a present row still takes the ordinary paired close
+# or captain-held retain. A configured
 # non-markdown adapter remains active without a markdown file; any active
 # automatic backend without compatible tasks-axi refuses before cleanup.
 # None of this loosens the landed-work gates below: the transition runs only on
@@ -137,8 +142,8 @@
 # a proved durable secondmate lease on a claim that still names this task, is
 # proof of reassignment: the slot is no longer this task's, so teardown warns,
 # names the occupant, and then finishes only this task's own cleanup - endpoint,
-# status, records, checks, backlog - while every step that would read or touch
-# that slot is skipped: no process kill under it, no dirty or landed-work
+# status, records, checks, and backlog when that item still exists - while every
+# step that would read or touch that slot is skipped: no process kill under it, no dirty or landed-work
 # inspection of it, no branch or hook removal in it, no Treehouse return, and
 # never the other task's claim. Skipping the inspection discards nothing of this
 # task's: whatever unlanded work it had in that slot was already destroyed when
