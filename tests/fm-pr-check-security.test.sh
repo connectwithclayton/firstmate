@@ -337,11 +337,7 @@ run_check_entry() {
 }
 
 run_merge_entry() {
-  local dir=$1 id=${2:-} url=${3:-}
-  if [ "$#" -ge 3 ] && fm_pr_task_id_valid "$id" && fm_pr_url_parse "$url" \
-    && [ -f "$dir/home/state/$id.meta" ]; then
-    write_ready_status "$dir" "$id" "$url" || return 1
-  fi
+  local dir=$1
   shift
   FM_ROOT_OVERRIDE="$dir/root" FM_HOME="$dir/home" \
     FM_TEST_GUARD_LOG="$dir/guard.log" FM_TEST_GH_LOG="$dir/gh.log" \
@@ -865,6 +861,35 @@ test_supported_ready_status_variants_register() {
       || fail "wrong delivery-mode status armed monitoring: $line"
   done
   pass "ready statuses follow normalized delivery-mode and provider contracts"
+}
+
+test_only_latest_ready_status_can_register() {
+  local dir state url_a url_b rc
+  dir=$(make_case latest-ready-status)
+  state="$dir/home/state"
+  url_a=https://github.com/o/r/pull/93
+  url_b=https://github.com/o/r/pull/94
+  write_task_meta "$dir" task-a direct-PR
+
+  printf 'done: PR %s\n' "$url_a" >> "$state/task-a.status"
+  run_check_entry_unprepared "$dir" task-a "$url_a" > "$dir/a.out" 2> "$dir/a.err" \
+    || fail "first ready PR did not register: $(cat "$dir/a.err")"
+  printf 'done: PR %s\n' "$url_b" >> "$state/task-a.status"
+  run_check_entry_unprepared "$dir" task-a "$url_b" > "$dir/b.out" 2> "$dir/b.err" \
+    || fail "latest ready PR did not replace the first: $(cat "$dir/b.err")"
+
+  set +e
+  run_check_entry_unprepared "$dir" task-a "$url_a" > "$dir/replay.out" 2> "$dir/replay.err"
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "an older ready PR replay replaced the latest identity"
+  grep -qxF "pr=$url_b" "$state/task-a.meta" \
+    || fail "an older ready PR replay changed canonical ownership"
+  fm_pr_poll_snapshot_capture "$state" task-a "$POLL" \
+    || fail "latest ready PR poll was not preserved after replay refusal"
+  [ "$FM_PR_POLL_SNAPSHOT_URL" = "$url_b" ] \
+    || fail "older ready PR replay changed the authenticated poll identity"
+  pass "only the latest mode-valid ready status can register a new PR"
 }
 
 # With no forge-reported head (gh cannot supply one), the named head is the
@@ -3959,6 +3984,7 @@ test_draft_pull_request_is_not_armed
 test_secondmate_record_refuses_a_pr_watch
 test_scout_status_pr_mention_does_not_register
 test_supported_ready_status_variants_register
+test_only_latest_ready_status_can_register
 test_unpushed_named_head_refuses_registration
 test_direct_pr_unpushed_commit_refuses_registration
 test_valid_recording_and_merge_derivation

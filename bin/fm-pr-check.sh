@@ -80,10 +80,10 @@ if fm_pr_metadata_identity_parse "$META"; then
   REGISTERED_URL=$FM_PR_META_URL
 fi
 STATUS="$STATE/$ID.status"
-if [ "$REGISTERED_URL" != "$URL" ]; then
+if [ "$REGISTERED_URL" != "$URL" ] && [ "${FM_PR_CHECK_MERGE:-}" != 1 ]; then
   if [ ! -f "$STATUS" ] || [ ! -r "$STATUS" ] || [ -L "$STATUS" ] \
     || [ "$(fm_pr_file_link_count "$STATUS")" != 1 ] \
-    || ! status_ready_pr_urls "$MODE" < "$STATUS" | grep -Fqx "$URL"; then
+    || [ "$(status_latest_ready_pr_url "$MODE" < "$STATUS")" != "$URL" ]; then
     echo "error: task $ID has no exact PR-ready status for $URL, so it cannot be registered as this task's delivery" >&2
     exit 1
   fi

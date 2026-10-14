@@ -380,7 +380,7 @@ status_event_json() {  # <observed-status-log> [<contract-path>]
 
 ready_pr_url_in_file() {  # <file> <delivery-mode>
   [ -f "$1" ] || return 1
-  status_ready_pr_urls "$2" < "$1" | head -1
+  status_latest_ready_pr_url "$2" < "$1"
 }
 
 backlog_json() (  # [<backlog-path>] - defaults to this home's $BACKLOG

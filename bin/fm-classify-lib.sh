@@ -765,8 +765,8 @@ status_pr_url_provider() {  # <validated-url>
   esac
 }
 
-status_ready_pr_urls() {  # [<delivery-mode>]
-  local mode=${1:-} line verb note url provider
+status_latest_ready_pr_url() {  # [<delivery-mode>]
+  local mode=${1:-} line verb note url provider latest=''
   while IFS= read -r line || [ -n "$line" ]; do
     status_line_verb "$line" verb
     [ "$verb" = done ] || continue
@@ -785,8 +785,9 @@ status_ready_pr_urls() {  # [<delivery-mode>]
         ;;
       *) continue ;;
     esac
-    printf '%s\n' "$url"
+    latest=$url
   done
+  [ -z "$latest" ] || printf '%s\n' "$latest"
 }
 
 _fm_decision_key() {  # <status-line> [<keyless>] -> key slug, or <keyless> (default "default") when no token

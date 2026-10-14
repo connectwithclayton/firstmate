@@ -333,7 +333,7 @@ pr_for_task() { # <meta> [preferred-line]
   value=$(meta_field "$meta" pr)
   if [ -z "$value" ] && [ -n "$preferred" ]; then
     mode=$(meta_field "$meta" mode)
-    value=$(printf '%s\n' "$preferred" | status_ready_pr_urls "$mode" | head -1 || true)
+    value=$(printf '%s\n' "$preferred" | status_latest_ready_pr_url "$mode" || true)
   fi
   clean_field "$value"
 }

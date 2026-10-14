@@ -256,9 +256,10 @@ test_fixture_snapshot_json() {
 }
 
 test_scout_pr_mention_is_not_an_artifact() {
-  local home fakebin url gerrit_url out view scout_row ship_row
+  local home fakebin old_url url gerrit_url out view scout_row ship_row
   home=$(make_home scout-pr-mention)
   fakebin=$(make_fakebin "$home")
+  old_url=https://github.com/o/r/pull/90
   url=https://github.com/o/r/pull/91
   gerrit_url=https://gerrit.example/c/o/r/+/91
   mkdir -p "$home/data/scout-mentioned" "$home/projects/scout" "$home/projects/stale" \
@@ -290,7 +291,8 @@ test_scout_pr_mention_is_not_an_artifact() {
     'harness=codex' \
     'kind=ship' \
     'mode=no-mistakes'
-  printf 'done: PR %s checks green\n' "$url" > "$home/state/ship-ready.status"
+  printf 'done: PR %s checks green\ndone: PR %s checks green\n' "$old_url" "$url" \
+    > "$home/state/ship-ready.status"
   fm_write_meta "$home/state/ship-unready.meta" \
     'window=firstmate:fm-ship-unready' \
     "worktree=$home/projects/unready" \
@@ -325,7 +327,7 @@ test_scout_pr_mention_is_not_an_artifact() {
   printf 'done: PR %s checks green\n' "$gerrit_url" > "$home/state/gerrit-wrong.status"
 
   out=$(PATH="$fakebin:$PATH" FM_HOME="$home" "$SNAPSHOT" --json)
-  printf '%s' "$out" | jq -e --arg url "$url" --arg gerrit_url "$gerrit_url" '
+  printf '%s' "$out" | jq -e --arg old_url "$old_url" --arg url "$url" --arg gerrit_url "$gerrit_url" '
     (.tasks[] | select(.id == "scout-mentioned")
       | .pr == {url:null,source:"absent",head:null}
         and .paths.status_log.last_event.raw == ("paused: awaiting review of " + $url))
@@ -334,7 +336,7 @@ test_scout_pr_mention_is_not_an_artifact() {
       | .pr == {url:null,source:"absent",head:null})
       and
     (.tasks[] | select(.id == "ship-ready")
-      | .pr.url == $url and .pr.source == "status_event")
+      | .pr.url == $url and .pr.url != $old_url and .pr.source == "status_event")
       and
     (.tasks[] | select(.id == "ship-unready")
       | .pr == {url:null,source:"absent",head:null})

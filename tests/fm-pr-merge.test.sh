@@ -660,17 +660,7 @@ glab_merge_line() {
 }
 
 run_pr_merge() {
-  local case_dir=$1 rc id=${2:-} url=${3:-} mode line
-  if fm_pr_task_id_valid "$id" && fm_pr_url_parse "$url" \
-    && [ -f "$case_dir/state/$id.meta" ]; then
-    mode=$(sed -n 's/^mode=//p' "$case_dir/state/$id.meta" | tail -1)
-    case "$FM_PR_PROVIDER:$mode" in
-      gerrit:*) line="done: PR $url published for review" ;;
-      *:no-mistakes|*:) line="done: PR $url checks green" ;;
-      *) line="done: PR $url" ;;
-    esac
-    printf '%s\n' "$line" >> "$case_dir/state/$id.status"
-  fi
+  local case_dir=$1 rc
   shift
   FM_ROOT_OVERRIDE="$ROOT" \
   FM_HOME="${FM_TEST_HOME:-$case_dir/home}" \
@@ -749,6 +739,8 @@ test_verified_merge_records_pr_and_head() {
     "records-before-merge: pr= was not recorded"
   assert_grep 'pr_head=deadbeefcafefeed0000000000000000deadbeef' "$case_dir/state/task-x1.meta" \
     "records-before-merge: pr_head= was not recorded"
+  assert_absent "$case_dir/state/task-x1.status" \
+    "records-before-merge: the merge fallback depended on synthesized ready status"
   assert_logged_gh_merge "$case_dir" 9 example/repo --squash
   pass "fm-pr-merge records pr= and pr_head= for a verified GitHub merge"
 }
