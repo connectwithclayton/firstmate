@@ -176,7 +176,7 @@ META=
 SCOUT_BRIEF=
 BRIEF_ORIGINAL=
 BRIEF_REPLACEMENT=
-READY_AFTER_LINE=
+PROMOTION_READY_ERA=
 promote_cleanup() {
   local status=$?
   [ -z "$TMP" ] || rm -f -- "$TMP" 2>/dev/null || true
@@ -335,6 +335,12 @@ EOF
     printf '\nThe no-mistakes ask-user escalation below supersedes the scout rule 6 escalation shape.\n'
     printf '%s\n' "$PROMOTION_ASK_USER_BLOCK"
   fi
+  if [ "$MODE" != local-only ]; then
+    cat <<EOF
+
+For this promoted task, every PR-ready \`done\` line must read \`pr_ready_era=\` from \`$META\` and include \`[era=<that exact value>]\` before the colon. A line without that exact current era is scout-era history and cannot establish PR ownership.
+EOF
+  fi
   printf '\n'
   fm_dod_block "$MODE" "$ID" "$BRANCH" "$FORGE" "$BASE_BRANCH" "$UPSTREAM_CONSENT"
 }
@@ -397,24 +403,22 @@ if [ -e "$STATUS" ] || [ -L "$STATUS" ]; then
       echo "error: task status is unsafe: $STATUS" >&2
       exit 1
     }
-  READY_AFTER_LINE=$(awk 'END { print NR + 0 }' "$STATUS") || {
-    echo "error: task status could not be read: $STATUS" >&2
-    exit 1
-  }
-else
-  READY_AFTER_LINE=0
 fi
+PROMOTION_READY_ERA=$(fm_pr_ready_era_new) || {
+  echo "error: task PR-ready promotion era could not be generated" >&2
+  exit 1
+}
 
 TMP="$STATE/.$ID.meta.promote.${BASHPID:-$$}"
 grep -v -e '^kind=' -e '^mode=' -e '^yolo=' -e '^branch=' \
-  -e '^upstream_consent=' -e '^pr_ready_after_line=' "$META" > "$TMP"
+  -e '^upstream_consent=' -e '^pr_ready_after_line=' -e '^pr_ready_era=' "$META" > "$TMP"
 {
   echo "kind=ship"
   echo "mode=$MODE"
   echo "yolo=$YOLO"
   echo "branch=$BRANCH"
   [ -z "$UPSTREAM_CONSENT" ] || echo "upstream_consent=$UPSTREAM_CONSENT"
-  echo "pr_ready_after_line=$READY_AFTER_LINE"
+  echo "pr_ready_era=$PROMOTION_READY_ERA"
 } >> "$TMP"
 if ! fm_backlog_atomic_transition publish "$TMP" "$META" "task record" "$STATE"; then
   rm -f -- "$TMP"

@@ -2736,7 +2736,7 @@ quarantine_pr_poll() {  # <id> <url>
 }
 
 reconcile_pr_poll_ownership() {  # <id> <provider> <url> <host> <path> <number>
-  local id=$1 provider=$2 url=$3 host=$4 path=$5 number=$6 meta status mode ready ready_after contribution_ownership
+  local id=$1 provider=$2 url=$3 host=$4 path=$5 number=$6 meta status mode ready ready_after ready_era contribution_ownership
   meta="$STATE/$id.meta"
   if fm_pr_metadata_identity_parse "$meta" \
     && [ "$FM_PR_META_PROVIDER" = "$provider" ] \
@@ -2771,11 +2771,13 @@ reconcile_pr_poll_ownership() {  # <id> <provider> <url> <host> <path> <number>
   fi
   status="$STATE/$id.status"
   mode=$(fm_meta_get "$meta" mode)
+  fm_pr_ready_after_read "$meta" || return 1
   ready_after=${FM_PR_READY_AFTER_LINE:-0}
+  ready_era=$FM_PR_READY_ERA
   ready=
   if [ -f "$status" ] && [ ! -L "$status" ] \
     && [ "$(fm_pr_file_link_count "$status")" = 1 ]; then
-    ready=$(status_latest_ready_pr_url "$mode" "$((ready_after + 1))" < "$status")
+    ready=$(status_latest_ready_pr_url "$mode" "$((ready_after + 1))" "$ready_era" < "$status")
   fi
   if [ "$ready" = "$url" ]; then
     fm_pr_metadata_ownership_set "$STATE" "$id" "$url" proven-ready-status-v1 || return 1

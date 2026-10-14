@@ -39,7 +39,8 @@ FM_PR_META_PATH=
 FM_PR_META_NUMBER=
 FM_PR_META_OWNERSHIP=
 FM_PR_READY_AFTER_LINE=
-FM_PR_READY_AFTER_PRESENT=0
+FM_PR_READY_ERA=
+FM_PR_READY_BOUNDARY_PRESENT=0
 FM_PR_REG_ID=
 FM_PR_REG_PROVIDER=
 FM_PR_REG_URL=
@@ -396,10 +397,23 @@ fm_pr_regular_destination_on_device_or_absent() {
   [ ! -e "$path" ] || [ "$(fm_pr_file_device "$path")" = "$device" ]
 }
 
+fm_pr_ready_era_valid() {  # <token>
+  [ "${#1}" -eq 32 ] || return 1
+  case "$1" in *[!0-9a-f]*) return 1 ;; esac
+}
+
+fm_pr_ready_era_new() {
+  local token
+  token=$(od -An -N16 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n') || return 1
+  fm_pr_ready_era_valid "$token" || return 1
+  printf '%s\n' "$token"
+}
+
 fm_pr_ready_after_read() {  # <meta-file>
-  local file=$1 line value= count=0
+  local file=$1 line value= count=0 era= era_count=0
   FM_PR_READY_AFTER_LINE=
-  FM_PR_READY_AFTER_PRESENT=0
+  FM_PR_READY_ERA=
+  FM_PR_READY_BOUNDARY_PRESENT=0
   [ -f "$file" ] && [ ! -L "$file" ] || return 1
   [ "$(fm_pr_file_link_count "$file")" = 1 ] || return 1
   while IFS= read -r line || [ -n "$line" ]; do
@@ -408,15 +422,25 @@ fm_pr_ready_after_read() {  # <meta-file>
         count=$((count + 1))
         value=${line#pr_ready_after_line=}
         ;;
+      pr_ready_era=*)
+        era_count=$((era_count + 1))
+        era=${line#pr_ready_era=}
+        ;;
     esac
   done < "$file"
-  [ "$count" -le 1 ] || return 1
-  [ "$count" -eq 1 ] || return 0
-  case "$value" in
-    ''|*[!0-9]*|0[0-9]*) return 1 ;;
-  esac
-  FM_PR_READY_AFTER_LINE=$value
-  FM_PR_READY_AFTER_PRESENT=1
+  [ "$count" -le 1 ] && [ "$era_count" -le 1 ] || return 1
+  if [ "$count" -eq 1 ]; then
+    case "$value" in
+      ''|*[!0-9]*|0[0-9]*) return 1 ;;
+    esac
+    FM_PR_READY_AFTER_LINE=$value
+    FM_PR_READY_BOUNDARY_PRESENT=1
+  fi
+  if [ "$era_count" -eq 1 ]; then
+    fm_pr_ready_era_valid "$era" || return 1
+    FM_PR_READY_ERA=$era
+    FM_PR_READY_BOUNDARY_PRESENT=1
+  fi
 }
 
 fm_pr_metadata_identity_parse_any() {
@@ -463,6 +487,8 @@ fm_pr_metadata_identity_parse_any() {
         esac
         ;;
       pr_ready_after_line=*)
+        ;;
+      pr_ready_era=*)
         ;;
       x_request=*|x_request_ts=*|x_followups=*|x_platform=*|x_reply_max_chars=*)
         ;;

@@ -88,11 +88,12 @@ fm_pr_ready_after_read "$META" || {
   exit 1
 }
 READY_AFTER_LINE=${FM_PR_READY_AFTER_LINE:-0}
-READY_AFTER_PRESENT=$FM_PR_READY_AFTER_PRESENT
+READY_ERA=$FM_PR_READY_ERA
+READY_BOUNDARY_PRESENT=$FM_PR_READY_BOUNDARY_PRESENT
 STATUS_READY_URL=
 if [ -f "$STATUS" ] && [ -r "$STATUS" ] && [ ! -L "$STATUS" ] \
   && [ "$(fm_pr_file_link_count "$STATUS")" = 1 ]; then
-  STATUS_READY_URL=$(status_latest_ready_pr_url "$MODE" "$((READY_AFTER_LINE + 1))" < "$STATUS")
+  STATUS_READY_URL=$(status_latest_ready_pr_url "$MODE" "$((READY_AFTER_LINE + 1))" "$READY_ERA" < "$STATUS")
 fi
 case "$REGISTERED_OWNERSHIP" in
   proven-ready-status-v1|proven-merge-authorized-v1|proven-contribution-v1) OWNERSHIP=$REGISTERED_OWNERSHIP ;;
@@ -101,7 +102,7 @@ esac
 if [ "${FM_PR_CHECK_MERGE:-}" = 1 ]; then
   OWNERSHIP=proven-merge-authorized-v1
 elif [ "$REJECTED_URL" = "$URL" ] \
-  && { [ "$READY_AFTER_PRESENT" -eq 0 ] || [ "$STATUS_READY_URL" != "$URL" ]; }; then
+  && { [ "$READY_BOUNDARY_PRESENT" -eq 0 ] || [ "$STATUS_READY_URL" != "$URL" ]; }; then
   echo "error: task $ID has durable rejected scout provenance for $URL, so that pull request cannot be registered as this task's delivery" >&2
   exit 1
 elif [ "$STATUS_READY_URL" = "$URL" ]; then

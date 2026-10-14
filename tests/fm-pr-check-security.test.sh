@@ -813,7 +813,7 @@ test_scout_status_pr_mention_does_not_register() {
 }
 
 test_promoted_ship_uses_only_post_promotion_ready_evidence() {
-  local dir state url rc head
+  local dir state url rc head era pid i
   url=https://github.com/o/r/pull/96
 
   dir=$(make_case promotion-ready-boundary)
@@ -844,7 +844,9 @@ test_promoted_ship_uses_only_post_promotion_ready_evidence() {
   [ "$rc" -ne 0 ] || fail "scout-era ready evidence registered after promotion"
   assert_poll_absent "$state" task-a
 
-  printf 'done: PR %s checks green\n' "$url" >> "$state/task-a.status"
+  era=$(sed -n 's/^pr_ready_era=//p' "$state/task-a.meta")
+  fm_pr_ready_era_valid "$era" || fail "promotion did not publish a valid PR-ready era"
+  printf 'done [era=%s]: PR %s checks green\n' "$era" "$url" >> "$state/task-a.status"
   head=$(git -C "$dir/wt" rev-parse HEAD)
   FM_TEST_GH_HEAD="$head" run_check_entry_unprepared "$dir" task-a "$url" \
     > "$dir/new.out" 2> "$dir/new.err" \
@@ -853,6 +855,84 @@ test_promoted_ship_uses_only_post_promotion_ready_evidence() {
     || fail "post-promotion ready evidence did not establish ownership"
   fm_pr_poll_artifacts_valid "$state" task-a "$POLL" \
     || fail "post-promotion ready evidence did not arm authenticated monitoring"
+
+  dir=$(make_case promotion-ready-race)
+  state="$dir/home/state"
+  fm_write_meta "$state/task-a.meta" \
+    'window=firstmate:fm-task-a' \
+    'endpoint_task_id=task-a' \
+    "worktree=$dir/wt" \
+    'kind=scout'
+  mkdir -p "$dir/home/data/task-a"
+  printf '%s\n' \
+    '# Task' \
+    '## Captain'\''s intent' \
+    'Investigate the pull request.' \
+    '' \
+    '## Firstmate spec' \
+    'Report findings only.' > "$dir/home/data/task-a/brief.md"
+  printf 'working: scout investigation remains active\n' > "$state/task-a.status"
+  cat > "$dir/fakebin/mv" <<'SH'
+#!/bin/sh
+last=
+for arg do last=$arg; done
+if [ "$last" = "$FM_TEST_PROMOTION_META" ]; then
+  : > "$FM_TEST_PROMOTION_GATE"
+  n=0
+  while [ ! -e "$FM_TEST_PROMOTION_RELEASE" ]; do
+    n=$((n + 1))
+    [ "$n" -le 500 ] || exit 97
+    sleep 0.01
+  done
+fi
+exec "$FM_TEST_REAL_MV" "$@"
+SH
+  chmod +x "$dir/fakebin/mv"
+  FM_TEST_PROMOTION_META="$state/task-a.meta" \
+    FM_TEST_PROMOTION_GATE="$dir/promotion-publish-ready" \
+    FM_TEST_PROMOTION_RELEASE="$dir/release-promotion" \
+    FM_TEST_REAL_MV="$REAL_MV" PATH="$dir/fakebin:$BASE_PATH" \
+    FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$dir/home" \
+    FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$dir/home/data" \
+    "$ROOT/bin/fm-promote.sh" task-a --mode no-mistakes --yolo off \
+    > "$dir/promote.out" 2> "$dir/promote.err" &
+  pid=$!
+  i=0
+  while [ ! -e "$dir/promotion-publish-ready" ]; do
+    i=$((i + 1))
+    if [ "$i" -gt 500 ]; then
+      kill "$pid" 2>/dev/null || true
+      wait "$pid" 2>/dev/null || true
+      fail "promotion never reached its atomic metadata publication"
+    fi
+    sleep 0.01
+  done
+  grep -qx 'kind=scout' "$state/task-a.meta" \
+    || fail "promotion published the ship role before the race gate"
+  printf 'done: PR %s checks green\n' "$url" >> "$state/task-a.status"
+  : > "$dir/release-promotion"
+  wait "$pid" || fail "racing promotion failed: $(cat "$dir/promote.err")"
+  rm -f "$dir/fakebin/mv"
+
+  set +e
+  run_check_entry_unprepared "$dir" task-a "$url" > "$dir/race-old.out" 2> "$dir/race-old.err"
+  rc=$?
+  set -e
+  [ "$rc" -ne 0 ] || fail "a scout ready append racing promotion established ownership"
+  assert_poll_absent "$state" task-a
+  [ ! -s "$dir/gh.log" ] || fail "the racing scout append queried the forge"
+
+  era=$(sed -n 's/^pr_ready_era=//p' "$state/task-a.meta")
+  fm_pr_ready_era_valid "$era" || fail "racing promotion did not publish a valid PR-ready era"
+  printf 'done [era=%s]: PR %s checks green\n' "$era" "$url" >> "$state/task-a.status"
+  head=$(git -C "$dir/wt" rev-parse HEAD)
+  FM_TEST_GH_HEAD="$head" run_check_entry_unprepared "$dir" task-a "$url" \
+    > "$dir/race-new.out" 2> "$dir/race-new.err" \
+    || fail "valid ship append after the racing promotion was rejected: $(cat "$dir/race-new.err")"
+  grep -qxF "pr=$url" "$state/task-a.meta" \
+    || fail "valid ship append after the racing promotion did not establish ownership"
+  fm_pr_poll_artifacts_valid "$state" task-a "$POLL" \
+    || fail "valid ship append after the racing promotion did not arm monitoring"
 
   dir=$(make_case promotion-ready-rejected-url)
   state="$dir/home/state"
@@ -876,7 +956,9 @@ test_promoted_ship_uses_only_post_promotion_ready_evidence() {
     FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$dir/home/data" \
     "$ROOT/bin/fm-promote.sh" task-a --mode no-mistakes --yolo off >/dev/null \
     || fail "could not promote the rejected-provenance fixture"
-  printf 'done: PR %s checks green\n' "$url" >> "$state/task-a.status"
+  era=$(sed -n 's/^pr_ready_era=//p' "$state/task-a.meta")
+  fm_pr_ready_era_valid "$era" || fail "rejected-provenance promotion did not publish a valid PR-ready era"
+  printf 'done [era=%s]: PR %s checks green\n' "$era" "$url" >> "$state/task-a.status"
   head=$(git -C "$dir/wt" rev-parse HEAD)
   FM_TEST_GH_HEAD="$head" run_check_entry_unprepared "$dir" task-a "$url" \
     > "$dir/rejected-new.out" 2> "$dir/rejected-new.err" \

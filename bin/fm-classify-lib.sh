@@ -759,14 +759,30 @@ status_pr_url_from_done_note() {  # <note>
   printf '%s\n' "$url"
 }
 
-status_latest_ready_pr_url() {  # [<delivery-mode>] [<first-eligible-line>]
-  local mode=${1:-} first=${2:-1} line verb note url provider latest='' number=0
+status_line_ready_era() {  # <status-line>
+  local head rest era
+  case "$1" in *:*) head=${1%%:*} ;; *) return 1 ;; esac
+  case "$head" in *\[era=*\]*) ;; *) return 1 ;; esac
+  rest=${head#*\[era=}
+  era=${rest%%\]*}
+  case "${rest#*\]}" in *\[era=*) return 1 ;; esac
+  fm_pr_ready_era_valid "$era" || return 1
+  printf '%s\n' "$era"
+}
+
+status_latest_ready_pr_url() {  # [<delivery-mode>] [<first-eligible-line>] [<required-era>]
+  local mode=${1:-} first=${2:-1} required_era=${3:-} line verb note url provider era latest='' number=0
   case "$first" in
     ''|*[!0-9]*|0*) return 1 ;;
   esac
+  [ -z "$required_era" ] || fm_pr_ready_era_valid "$required_era" || return 1
   while IFS= read -r line || [ -n "$line" ]; do
     number=$((number + 1))
     [ "$number" -ge "$first" ] || continue
+    if [ -n "$required_era" ]; then
+      era=$(status_line_ready_era "$line") || continue
+      [ "$era" = "$required_era" ] || continue
+    fi
     status_line_verb "$line" verb
     [ "$verb" = done ] || continue
     note=$(status_line_note "$line")

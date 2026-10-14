@@ -378,16 +378,16 @@ status_event_json() {  # <observed-status-log> [<contract-path>]
     '{path:$path,present:$present,kind:"event_history",last_event:{state:$verb,note:$note,raw:$raw,age_seconds:$age}}'
 }
 
-ready_pr_url_in_file() {  # <file> <delivery-mode> [<last-ineligible-line>]
-  local after=${3:-0}
+ready_pr_url_in_file() {  # <file> <delivery-mode> [<last-ineligible-line>] [<required-era>]
+  local after=${3:-0} required_era=${4:-}
   [ -f "$1" ] || return 1
   case "$after" in ''|*[!0-9]*) return 1 ;; esac
-  status_latest_ready_pr_url "$2" "$((after + 1))" < "$1"
+  status_latest_ready_pr_url "$2" "$((after + 1))" "$required_era" < "$1"
 }
 
 ready_pr_url_for_meta() {  # <meta> <status-file> <delivery-mode>
   fm_pr_ready_after_read "$1" || return 1
-  ready_pr_url_in_file "$2" "$3" "${FM_PR_READY_AFTER_LINE:-0}"
+  ready_pr_url_in_file "$2" "$3" "${FM_PR_READY_AFTER_LINE:-0}" "$FM_PR_READY_ERA"
 }
 
 ready_pr_url_rejected_for_meta() {  # <meta> <url>
@@ -395,7 +395,7 @@ ready_pr_url_rejected_for_meta() {  # <meta> <url>
   rejected=$(meta_value "$1" pr_rejected_url)
   [ -n "$rejected" ] && [ "$rejected" = "$2" ] || return 1
   fm_pr_ready_after_read "$1" || return 0
-  [ "$FM_PR_READY_AFTER_PRESENT" -eq 0 ]
+  [ "$FM_PR_READY_BOUNDARY_PRESENT" -eq 0 ]
 }
 
 backlog_json() (  # [<backlog-path>] - defaults to this home's $BACKLOG
